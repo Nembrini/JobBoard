@@ -93,13 +93,41 @@ raccolti, 154 distinti, 13 chiamate API**, di cui 73 con link ATS diretto.
 
 ## Fase 3 — Matching · 1.5 gg
 
-- [ ] **3.1** Stadio 0: hard filter configurabili da `settings`
-- [ ] **3.2** Stadio 1: cosine su embedding + BM25 su keyword, combinati
-- [ ] **3.3** Stadio 2: estrazione `job_requirements` e rubrica pesata via Message Batches API
-- [ ] **3.4** Persistenza `match` con subscores, rationale e gaps
-- [ ] **3.5** `scripts/calibrate.py` su un set di 20-30 annunci etichettati a mano
+- [x] **3.1** Stadio 0: filtri duri configurabili da `settings`, con il motivo di ogni
+      scarto salvato in `match.filtered_reason`. Regola trasversale: **un dato mancante
+      non esclude mai** — un terzo degli annunci non dichiara il paese e due quinti non
+      dichiarano il livello.
+- [x] **3.2** Stadio 1: coseno su embedding + BM25 sulle competenze, combinati come
+      `0.6*spread(coseno) + 0.4*spread(bm25)`. BM25 cerca le competenze come **frasi**
+      (n-grammi fino a tre parole) e usa la IDF smussata, che non diventa mai negativa.
+- [x] **3.3** Stadio 2: estrazione `job_requirements` e rubrica pesata in **una sola
+      chiamata** per annuncio. La Message Batches API era una feature Anthropic: sul
+      provider attivo non esiste, quindi le chiamate sono sequenziali con 4 secondi di
+      pausa per restare dentro il rate limit del free tier.
+- [x] **3.4** Persistenza `match` con sotto-punteggi, motivazione e gap. La media pesata
+      la calcola il codice, non il modello: è l'unico modo di poterla ritarare dopo.
+- [x] **3.5** `scripts/calibrate.py`: esporta un CSV da etichettare, cerca i pesi
+      migliori su 53 130 combinazioni e **verifica su una metà quello che ha imparato
+      sull'altra**, perché sei pesi liberi su trenta esempi trovano sempre qualcosa.
+- [x] **3.6** Comandi `jobboard match`, `jobboard matches list|show|criteria`.
 
-**Verifica:** i top-10 sul tuo CV sono plausibili a occhio; annunci palesemente fuori target restano sotto 40.
+**Verifica:** eseguita sui 153 annunci in banca dati. L'imbuto ha fatto
+**153 -> 44 -> 40**, gli scarti dello Stadio 0 sono livello 85, età 21, paese 3, e i
+primi dodici punteggi sono tutti ruoli da sviluppatore coerenti con il profilo. Costo di
+una run completa: **40 chiamate, 101k token, circa 5 minuti**.
+
+> **Il bug che ha richiesto la correzione più importante.** Alla prima run vera il
+> punteggio più alto dell'intero raccolto — 65, primo in classifica — è andato a un
+> annuncio da contabile a Pune con quattro righe di descrizione. La motivazione scritta
+> dal modello stesso diceva "ruolo completamente slegato dal profilo tecnico", e
+> `domain_fit` valeva 0. Il colpevole era `must_have_coverage: 100`: l'annuncio non
+> elencava nessun requisito, e coprire il 100% di zero requisiti è vero quanto è inutile.
+> Quel criterio pesa il 40%. Ora un elenco di requisiti vuoto vale **neutro**, non
+> perfetto, e quell'annuncio è sceso a 25.
+
+**Resta aperto:** i punteggi non superano 65 perché `location_fit` e `salary_fit` restano
+neutri finché `candidate_profile.json` non dichiara lingue, autorizzazione al lavoro e
+RAL attesa. Con `MATCH_THRESHOLD=65` passa un annuncio solo.
 
 ---
 

@@ -16,7 +16,14 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .commands import candidate_app, ingest_command, profile_app, sources_app
+from .commands import (
+    candidate_app,
+    ingest_command,
+    match_command,
+    matches_app,
+    profile_app,
+    sources_app,
+)
 from .config import get_settings
 
 
@@ -50,7 +57,9 @@ app = typer.Typer(
 app.add_typer(profile_app)
 app.add_typer(candidate_app)
 app.add_typer(sources_app)
+app.add_typer(matches_app)
 app.command(name="ingest")(ingest_command)
+app.command(name="match")(match_command)
 console = Console()
 
 
@@ -199,12 +208,6 @@ def gen_web_schema() -> None:
     console.print(
         f"[green]Scritte {table_count()} tabelle[/] in {target.relative_to(target.parents[3])}"
     )
-
-
-@app.command()
-def match() -> None:
-    """Calcola i punteggi di compatibilita' sugli annunci non ancora valutati. [Fase 3]"""
-    raise typer.Exit(_not_implemented("match", "Fase 3"))
 
 
 @app.command()

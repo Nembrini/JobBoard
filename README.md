@@ -8,7 +8,7 @@ Ogni giorno raccoglie annunci da più portali, li confronta con il tuo CV, li or
 compatibilità — e con un click genera un CV su misura per quel singolo annuncio e invia
 la candidatura.
 
-![Stato](https://img.shields.io/badge/stato-Fase%201%20in%20corso-blue)
+![Stato](https://img.shields.io/badge/stato-Fase%204%20in%20corso-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
@@ -54,11 +54,21 @@ Gli stadi 1–4 girano una volta al giorno da soli. Gli stadi 6–7 partono dal 
 Mandare 500 annunci al giorno a un modello linguistico è insostenibile. Mandarne 40 no.
 Ogni stadio scarta il più possibile con il metodo più economico disponibile:
 
-| Stadio | Metodo | Costo | Restano |
+| Stadio | Metodo | Costo | Misurato su 153 annunci |
 |---|---|---|---|
-| 0 · Hard filter | SQL: lingua, work authorization, seniority, location | zero | ~150 su 500 |
-| 1 · Semantico | Embedding multilingua in locale + BM25 sulle keyword | zero | 40 |
-| 2 · Rubrica | Gemini Flash Lite, 6 criteri pesati | free tier | punteggio finale |
+| 0 · Filtri duri | Lingua, work authorization, seniority, luogo, età | zero | restano 44 |
+| 1 · Semantico | Embedding multilingua in locale + BM25 sulle competenze | zero | restano 40 |
+| 2 · Rubrica | Gemini Flash Lite, 6 criteri pesati | free tier | 40 chiamate, ~5 min |
+
+Due regole tengono in piedi l'imbuto, e le ha imposte entrambe la prima esecuzione vera:
+
+- **Un dato mancante non esclude.** Un terzo degli annunci non dichiara il paese e due
+  quinti non dichiarano il livello. Trattare quel silenzio come una risposta negativa
+  trasformerebbe un buco nei dati della fonte in un'offerta persa.
+- **Assenza di prove non è prova di eccellenza.** Un annuncio senza requisiti dichiarati
+  non dà una copertura del 100%: dà un "non lo so". Senza questa regola il punteggio più
+  alto del primo giro è finito a un annuncio da contabile che il modello stesso definiva
+  "completamente slegato dal profilo".
 
 ## Architettura
 
@@ -114,7 +124,7 @@ compila un form non può girare su un server.
 | 0 · Fondamenta | ✅ | venv, 13 tabelle su Supabase, Alembic, Next.js, shadcn, Playwright |
 | 1 · Profilo e CV master | ✅ | Parsing PDF/DOCX, `MasterProfile`, risposte ATS, embedding locale |
 | 2 · Ingestione | ✅ | 10 adapter, normalizzazione, parsing RAL, dedup SimHash |
-| 3 · Matching | ⬜ | Imbuto a 3 stadi, calibrazione dei pesi |
+| 3 · Matching | ✅ | Imbuto a 3 stadi, rubrica pesata, calibrazione dei pesi |
 | 4 · Dashboard | ⬜ | Auth Google, tabella, filtri, drawer di dettaglio |
 | 5 · Ponte UI↔worker | ⬜ | Coda task, heartbeat, progresso |
 | 6 · Generazione CV | ⬜ | Tailoring ACR, validatore anti-invenzione, fit a una pagina |

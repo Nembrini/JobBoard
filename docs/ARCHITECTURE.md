@@ -241,32 +241,102 @@ Il punto dell'imbuto è il costo. Mandare 500 annunci al giorno a un LLM è inso
 mandarne 40 no. Ogni stadio scarta il più possibile usando il metodo più economico
 disponibile a quel livello.
 
+I numeri della colonna di destra sono misurati sulla prima run vera, su 153 annunci
+raccolti:
+
 ```
-STADIO 0 — HARD FILTER          (SQL, costo zero)                ~500 -> ~150
+STADIO 0 — FILTRI DURI          (costo zero)                     153 -> 44
   esclude: lingua non parlata, work authorization mancante, seniority fuori
   range +/-1, location fuori dai mercati scelti, contratto escluso, azienda in
-  blocklist, annuncio gia' visto o gia' candidato
+  blocklist, annuncio troppo vecchio, gia' visto o gia' candidato
+  scarti misurati: livello 85, eta' 21, paese 3
 
-STADIO 1 — SEMANTIC             (embedding locale, costo zero)   ~150 -> 40
+STADIO 1 — SEMANTICO            (embedding locale, costo zero)    44 -> 40
   cosine(profile_emb, job_emb)  su testo normalizzato
   spread(...)  <- riscalamento min-max DENTRO il lotto del giorno
-  + BM25/rapidfuzz su skill keywords   <- cattura i match esatti di tecnologia
+  + BM25 sulle competenze del profilo   <- cattura i match esatti di tecnologia
     che l'embedding da solo diluisce
-  score_ibrido = 0.6*spread(cosine) + 0.4*bm25_norm
+  score_ibrido = 0.6*spread(cosine) + 0.4*spread(bm25)
 
-STADIO 2 — RUBRICA LLM          (Gemini Flash Lite)              40 -> score finale
-  must_have_coverage    40%
-  nice_to_have          10%
-  seniority_fit         15%
-  domain/industry_fit   10%
-  work_mode + location  15%
-  salary_fit            10%   <- neutro quando la RAL non e' dichiarata
-  output: score 0-100 + rationale in 2 righe + gaps[]
+STADIO 2 — RUBRICA LLM          (Gemini Flash Lite)               40 -> punteggio
+  must_have_coverage      40%
+  nice_to_have_coverage   10%
+  seniority_fit           15%
+  domain_fit              10%
+  location_fit            15%
+  salary_fit              10%
+  output: punteggio 0-100 + rationale in 2 righe + gaps[]
+  costo misurato: 40 chiamate, 101k token, ~5 minuti
 ```
 
-Perché lo Stadio 1 è ibrido e non solo embedding: un annuncio che chiede *Kubernetes* e
-un CV che lo cita hanno un match lessicale esatto che il cosine su testo lungo
-diluisce. BM25 lo recupera.
+### 7.1 Stadio 0 — perché i predicati stanno in Python e non in una `WHERE`
+
+La coda della query sarebbe più elegante, ma **una riga assente da un result set non dice
+perché è assente**, e `match.filtered_reason` è una colonna che abbiamo promesso di
+riempire: senza, l'unico modo di capire perché un annuncio buono non compare in dashboard
+sarebbe rieseguire i filtri a mano uno per uno. La SQL restringe a ciò che è attivo e non
+già deciso; i predicati con motivazione girano su qualche centinaio di righe già in
+memoria.
+
+#### Un dato mancante non esclude mai
+
+È la regola trasversale dello Stadio 0. Nel raccolto reale un terzo degli annunci non
+dichiara il paese e due quinti non dichiarano il livello. Trattare quel silenzio come una
+risposta negativa trasformerebbe un buco nei dati della fonte in un'offerta persa — e la
+fonte non la ripubblica il giorno dopo. Il filtro esclude solo quando l'annuncio
+*afferma* qualcosa di incompatibile.
+
+Stessa logica sulla retribuzione: la soglia minima morde solo su una RAL **dichiarata**.
+Il silenzio non è una cifra bassa.
+
+#### Mercato e diritto al lavoro sono due domande diverse
+
+*Mercato* è dove Filippo vuole lavorare; *autorizzazione* è dove può, senza che l'azienda
+debba sponsorizzarlo. Un annuncio a Londra fallisce il secondo e non il primo, uno a
+Bangalore fallisce entrambi.
+
+Un annuncio remoto salta il controllo sul mercato — è il motivo per cui lo si guarda — ma
+**non** quello sull'autorizzazione: un remote da azienda statunitense chiede quasi sempre
+di poter già lavorare negli Stati Uniti, e scoprirlo alla domanda del form è tardi.
+
+#### La seniority si deduce, e si può sovrascrivere
+
+Il livello di Filippo viene dai mesi di esperienza del `master_profile`, contando **una
+sola volta i periodi sovrapposti**: iniziare il lavoro nuovo prima di chiudere il vecchio
+è normale, e sommare le durate una per una promuoverebbe un junior a senior sulla carta.
+Il valore dedotto finisce nella riga `settings` e da lì è modificabile: il mercato non
+ragiona solo in mesi.
+
+Sui dati reali questo filtro è il più selettivo dei sei — 85 scarti su 153 — e sono tutti
+titoli *Senior*, *Staff* o *Lead*, cioè fuori portata per chi ha due anni di esperienza.
+
+### 7.2 Stadio 1 — perché è ibrido e non solo embedding
+
+L'embedding capisce che "sviluppatore backend" e "backend engineer" sono la stessa cosa,
+ma **diluisce le tecnologie**: un annuncio Java e uno Python con la stessa struttura di
+frasi hanno vettori quasi identici, e la differenza è esattamente ciò che decide se puoi
+candidarti. BM25 fa il lavoro opposto — pesa le corrispondenze esatte e premia i termini
+rari — e i due errori non si sommano perché non sono lo stesso errore.
+
+Tre dettagli dell'implementazione che non sono ovvi:
+
+**Le competenze sono frasi, non parole.** "Spring Boot", "REST API", "CI/CD" spezzettati
+in unigrammi diventano rumore: "boot" e "api" compaiono ovunque. Un termine di ricerca è
+un n-gramma fino a tre parole e viene cercato come tale.
+
+**Il tokenizzatore tiene i simboli finali.** `[a-z0-9]+(?:[.+#/][a-z0-9]+)*[+#]*`: senza
+la coda, "C++" diventa "c" — un token che non corrisponde a niente — e una competenza
+dichiarata nel profilo smette di contare senza dare errore. È un bug che un test ha
+trovato prima della prima run.
+
+**La IDF è quella smussata,** `ln(1 + (N-n+0.5)/(n+0.5))`. La formula classica di
+Robertson diventa *negativa* per un termine presente in più di metà dei documenti: in un
+corpus di annunci per sviluppatori "developer" ne fa parte, e un contributo negativo
+farebbe scendere il punteggio di un annuncio *perché* contiene la parola giusta.
+
+Il titolo pesa tre volte il corpo, ripetendolo nel testo indicizzato: un "Java" nel
+titolo dice molto più di un "Java" in fondo all'elenco dei requisiti graditi, e BM25 da
+solo non conosce la struttura del documento.
 
 #### Perché il coseno va riscalato prima di essere combinato
 
@@ -284,7 +354,8 @@ Misurato con il modello di embedding scelto, contro il profilo reale:
 L'ordinamento è corretto — i tre pertinenti stanno sopra i tre non pertinenti — ma
 **l'intero intervallo utile è largo 0.08**, e un lavoro che non ha nulla a che vedere
 con il profilo prende comunque 0.80. È una proprietà nota dei modelli E5, non un difetto
-di questi dati.
+di questi dati. La run reale lo conferma: i primi dodici annunci stanno tutti fra 0.827 e
+0.875.
 
 Due conseguenze operative:
 
@@ -296,8 +367,70 @@ Due conseguenze operative:
    funzione `spread()` porta il lotto del giorno sull'intervallo 0-1 prima della
    combinazione, così i pesi significano quello che dicono.
 
-I pesi dello Stadio 2 si tarano con `scripts/calibrate.py` su 20-30 annunci etichettati
-a mano.
+Un annuncio senza embedding viene **saltato**, non valutato zero: uno zero lo manderebbe
+in fondo alla classifica come se fosse stato giudicato e bocciato.
+
+### 7.3 Stadio 2 — una chiamata, non due
+
+Il piano descriveva l'estrazione dei requisiti e la rubrica come due passi. Sono
+implementati come **una sola chiamata** che produce entrambi, per due ragioni: due
+chiamate manderebbero due volte la stessa job description, che è il 90% dei token; e le
+due risposte potrebbero contraddirsi, con un punteggio che dice "copre tutti i must have"
+accanto a una lista di must have che ne contiene uno mancante.
+
+**L'ordine dei campi nello schema è parte del prompt.** Il modello genera i campi
+nell'ordine in cui sono dichiarati: prima estrae i requisiti, poi assegna i punteggi
+*avendoli già scritti*. Invertire l'ordine gli farebbe dare un voto prima di aver
+guardato cosa sta valutando. Un test protegge quest'ordine, perché non è il genere di
+regressione che si nota guardando i numeri.
+
+**La media pesata la fa il codice, non il modello.** Gli LLM fanno aritmetica in modo
+inaffidabile, ma la ragione principale è un'altra: un totale prodotto dal modello non si
+può ritarare. Con i sei sotto-punteggi salvati in `match.subscores`, `scripts/calibrate.py`
+prova pesi diversi sugli stessi dati senza rifare una sola chiamata.
+
+#### Assenza di prove non è prova di eccellenza
+
+**È la regola che ha richiesto il maggior numero di correzioni, e l'ha imposta la prima
+run vera.** Al primo giro il punteggio più alto di tutto il raccolto — 65, primo in
+classifica — è andato a un annuncio da contabile a Pune con quattro righe di descrizione.
+La motivazione scritta dal modello stesso diceva: *"ruolo amministrativo completamente
+slegato dal profilo tecnico del candidato"*, e `domain_fit` valeva 0.
+
+Il colpevole era `must_have_coverage: 100`. L'annuncio non elencava **nessun** requisito,
+il modello ha estratto `must_have = []` e ne ha dedotto, con logica vacua impeccabile,
+che il candidato copre il 100% di zero requisiti. Quel criterio pesa il 40%: quaranta
+punti nati dal nulla, più i neutri degli altri criteri, fanno 65.
+
+La correzione è deterministica e sta nel codice, non in una preghiera al prompt: quando
+l'elenco dei requisiti è vuoto, la copertura **non è conoscibile** e vale 50. Stessa
+regola per `salary_fit` quando la RAL non è dichiarata, e per `nice_to_have_coverage`.
+Dopo la correzione quell'annuncio è passato da 65 a **25**, e i primi dodici posti sono
+tutti ruoli da sviluppatore.
+
+#### Niente Batch API con Gemini
+
+Il piano prevedeva la Message Batches API di Anthropic, che sconta del 50% le richieste
+non urgenti. Non ha equivalente sul provider attivo, quindi le chiamate sono sequenziali
+con **una pausa di 4 secondi** l'una dall'altra: il free tier conta le richieste al
+minuto, e quaranta chiamate consecutive esaurirebbero la quota in venti secondi facendo
+tornare 429 tutte le altre. La run dura due minuti in più, che per un processo notturno
+non è un costo.
+
+Un annuncio su cui la chiamata fallisce viene registrato in `report.errors` e la run
+prosegue: gli altri trentanove non devono pagare per uno.
+
+### 7.4 Taratura dei pesi
+
+`scripts/calibrate.py export` scrive un CSV con i sotto-punteggi già calcolati e una
+colonna `voto` da riempire a mano; `evaluate` cerca su tutte le 53 130 combinazioni di
+pesi a passo 0.05 quella che riproduce meglio i giudizi, misurata in **correlazione di
+rango** — perché quello che la dashboard mostra è un ordine, non un valore assoluto.
+
+Sei pesi liberi su trenta esempi trovano sempre *qualcosa*, anche nel rumore. Per questo
+lo script non si limita a stampare il vincitore: divide gli esempi in due metà, cerca su
+ciascuna e verifica che il vincitore dell'una regga sull'altra. Se le due metà non sono
+d'accordo, il messaggio lo dice e i pesi vanno lasciati stare.
 
 ## 8. Deduplicazione
 
@@ -455,8 +588,9 @@ Job Board/
       main.py, config.py, db.py, scheduler.py, queue.py, cli.py
       models/                SQLAlchemy — fonte di verita' dello schema
       sources/               base.py + un modulo per adapter
-      pipeline/              ingest, normalize, dedup, enrich, match
-      ai/                    client, embeddings, validator, prompts/
+      pipeline/              ingest, normalize, dedup, salary, text
+                             criteria, filters, bm25, rank, match
+      ai/                    client, embeddings, rubric, validator, prompts/
       cv/                    templates/, render.py, fit.py
       apply/                 router, greenhouse, lever, ashby, workable, assisted
       notify/                email_digest, imap_reader, classifier
