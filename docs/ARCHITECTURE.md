@@ -553,11 +553,36 @@ Lingua del CV determinata dalla lingua della job description (it/en/de/es/fr).
 La dashboard è su internet e contiene il CV, i dati personali e un bottone che invia
 candidature a nome di Filippo. Requisiti minimi:
 
-- **Auth.js + Google OAuth con allowlist di una sola email.** Il callback rifiuta ogni
-  account diverso; chiunque altro apra l'URL vede solo il login. Middleware Next.js su
-  ogni rotta tranne `/login`.
+- **Auth.js + Google OAuth con allowlist di una sola email.** Il rifiuto avviene nel
+  callback `signIn`, cioè *prima* che esista un cookie di sessione: chiunque altro può
+  arrivare fino alla schermata di Google e non oltre. Si controlla anche
+  `email_verified`, altrimenti un account con un'email non verificata potrebbe
+  dichiarare un indirizzo che non gli appartiene. In produzione, senza
+  `AUTH_ALLOWED_EMAIL` l'applicazione si rifiuta di avviarsi: meglio un deploy che non
+  parte di uno che parte aperto a tutti.
+- **Due livelli, non uno.** `src/proxy.ts` (in Next.js 16 il vecchio `middleware.ts`)
+  reindirizza chi non ha un cookie, ma gira anche sulle rotte che il browser preleva in
+  anticipo: legge solo il cookie e non tocca il database. Il controllo che decide se dei
+  dati possono uscire sta accanto ai dati, in `src/lib/dal.ts`, e lo chiama **ogni**
+  funzione di lettura. Cancellare il proxy per sbaglio farebbe smettere di
+  reindirizzare, non di proteggere.
+- **Le API rispondono 401, non un redirect.** Un client che ha chiesto JSON e riceve una
+  pagina HTML di login con stato 307 non vede un errore di autenticazione: vede un
+  errore di parsing.
+- **Nessun open redirect nel login.** Il parametro `next` viene accettato solo se inizia
+  per `/`. Altrimenti sarebbe possibile far atterrare qualcuno, dopo un login vero, su
+  un sito che somiglia a questo.
 - **Connection string e service key mai nel bundle client**: solo server component e
-  route handler, variabili senza prefisso `NEXT_PUBLIC_`.
+  route handler, variabili senza prefisso `NEXT_PUBLIC_`, e `import "server-only"` sui
+  moduli che le toccano.
+- **TLS verso il database, con la radice fissata.** `pg` non abilita TLS da solo e la
+  connection string di Supabase non contiene `sslmode`: senza configurazione esplicita
+  la connessione va **in chiaro**, ed è stato verificato che accadeva davvero. Con la
+  sola `rejectUnauthorized` fallisce, perché la catena si chiude su una CA privata di
+  Supabase assente dal trust store di sistema. Il certificato radice sta in
+  `web/src/db/supabase-ca.ts`, con l'impronta annotata per poterla confrontare con
+  quella pubblicata nella dashboard Supabase.
+- **`noindex, nofollow` su tutta l'applicazione**, login compreso.
 - **Bucket PDF privato**, servito esclusivamente con signed URL a scadenza breve. Mai
   URL pubblici, neanche con la scusa che tanto non sono indicizzati.
 - **Rate limiting** sui route handler che creano task, così un bug nella UI non può
@@ -565,6 +590,24 @@ candidature a nome di Filippo. Requisiti minimi:
 - **Region EU** su Supabase, trattandosi di dati personali.
 - Segreti in `.env` git-ignored lato worker, Environment Variables lato Vercel.
 - Vercel piano Hobby: uso personale e non commerciale, questo caso rientra.
+
+### Perché `pg` e non `postgres-js`
+
+Non è una preferenza di stile ma un guasto misurato. Con `postgres` (postgres-js) sotto
+Next.js 16 la dashboard serviva **una sola richiesta**: la prima query rispondeva in
+150 ms, dalla seconda in poi la connessione riutilizzata non restituiva più niente.
+Nessun errore, nessun timeout — la richiesta si chiudeva solo quando era il browser a
+rinunciare, il che dall'esterno somiglia a un database lento e non a un difetto del
+driver. Succedeva identico in sviluppo e nella build di produzione, mentre fuori da
+Next lo stesso client faceva quattro query a distanza di secondi senza un intoppo.
+
+Nella diagnosi è emerso anche un secondo tranello, questo di nostra responsabilità: il
+client tenuto su `globalThis` — il rimedio che si trova ovunque per l'accumulo di
+connessioni in sviluppo — peggiora le cose. Next valuta i moduli in più contesti e
+`globalThis` è condiviso fra questi, il socket TCP no: il primo contesto a creare il
+client lo deposita lì, e se non è quello che serve le richieste il risultato è di nuovo
+una query che non torna mai. Il singleton è quindi **di modulo**, e le connessioni non
+si accumulano lo stesso grazie a `idleTimeoutMillis`.
 
 ## 12. Rischi noti e mitigazioni
 
@@ -597,9 +640,13 @@ Job Board/
     alembic/
     pyproject.toml
   web/                       Next.js 16 -> Vercel
-    app/(auth)/, app/(dash)/, app/api/
-    db/schema.ts             generato da: jobboard gen-web-schema
-    components/
+    src/auth.ts              Auth.js: Google + allowlist a una email
+    src/proxy.ts             redirect ottimistico (ex middleware.ts)
+    src/app/                 page.tsx, login/, api/matches/, api/auth/
+    src/components/          tabella, drawer, filtri, badge, azioni di riga
+    src/lib/                 dal.ts (sessione), queries.ts, filters.ts, format.ts
+    src/db/schema.ts         generato da: jobboard gen-web-schema
+    src/db/supabase-ca.ts    radice TLS del pooler, fissata
   docs/                      questo documento + ROADMAP.md
   scripts/                   calibrate.py e utility one-off
 ```

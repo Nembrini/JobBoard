@@ -125,7 +125,7 @@ compila un form non può girare su un server.
 | 1 · Profilo e CV master | ✅ | Parsing PDF/DOCX, `MasterProfile`, risposte ATS, embedding locale |
 | 2 · Ingestione | ✅ | 10 adapter, normalizzazione, parsing RAL, dedup SimHash |
 | 3 · Matching | ✅ | Imbuto a 3 stadi, rubrica pesata, calibrazione dei pesi |
-| 4 · Dashboard | ⬜ | Auth Google, tabella, filtri, drawer di dettaglio |
+| 4 · Dashboard | 🔸 | Auth Google, tabella, filtri, drawer — manca il deploy |
 | 5 · Ponte UI↔worker | ⬜ | Coda task, heartbeat, progresso |
 | 6 · Generazione CV | ⬜ | Tailoring ACR, validatore anti-invenzione, fit a una pagina |
 | 7 · Candidatura | ⬜ | Tier A automatico, Tier B assistito, guardrail |

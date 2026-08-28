@@ -1,69 +1,92 @@
-import Image from "next/image";
+import { Suspense } from "react";
 
-export default function Home() {
+import { signOut } from "@/auth";
+import { DrawerShell } from "@/components/drawer-shell";
+import { FilterBar } from "@/components/filter-bar";
+import { MatchDetail } from "@/components/match-detail";
+import { MatchTable } from "@/components/match-table";
+import { Pagination } from "@/components/pagination";
+import { WorkerStatus } from "@/components/worker-status";
+import { requireSession } from "@/lib/dal";
+import { parseFilters, toSearchParams } from "@/lib/filters";
+import { getCounters, getFilterOptions, listMatches } from "@/lib/queries";
+
+export const metadata = { title: { absolute: "Job Board" } };
+
+/**
+ * La dashboard.
+ *
+ * Server component: legge dal database direttamente, senza far fare a Next.js
+ * una richiesta HTTP verso la propria API. La rotta `/api/matches` esiste
+ * comunque, per il drawer e per il digest email della Fase 8, ma il primo
+ * caricamento non ci passa — sarebbe un giro in più su una connessione mobile.
+ */
+export default async function Dashboard(props: PageProps<"/">) {
+  await requireSession();
+
+  const params = await props.searchParams;
+  const filters = parseFilters(params);
+  const [pagina, opzioni, contatori] = await Promise.all([
+    listMatches(filters),
+    getFilterOptions(),
+    getCounters(),
+  ]);
+
+  const aperto = Number.parseInt(
+    (Array.isArray(params.open) ? params.open[0] : params.open) ?? "",
+    10,
+  );
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-xl font-semibold tracking-tight">Job Board</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {contatori.nuovi} nuovi · {contatori.shortlist} in shortlist ·{" "}
+            {contatori.totale} valutati
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="flex items-center gap-4">
+          {/* L'heartbeat è una query in più: se è lenta non deve trattenere la
+              tabella, che è il motivo per cui si apre la pagina. */}
+          <Suspense fallback={<span className="text-muted-foreground text-xs">worker …</span>}>
+            <WorkerStatus />
+          </Suspense>
+          <form
+            action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/login" });
+            }}
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <button
+              type="submit"
+              className="text-muted-foreground hover:text-foreground text-xs underline-offset-4 hover:underline"
+            >
+              Esci
+            </button>
+          </form>
         </div>
-      </main>
+      </header>
+
+      <div className="space-y-4">
+        <FilterBar filters={filters} options={opzioni} total={pagina.total} />
+        <MatchTable items={pagina.items} />
+        <Pagination
+          page={pagina.page}
+          pageCount={pagina.pageCount}
+          total={pagina.total}
+          searchParams={toSearchParams(filters)}
+        />
+      </div>
+
+      {Number.isFinite(aperto) ? (
+        <DrawerShell>
+          <Suspense fallback={<div className="text-muted-foreground p-8 text-sm">Carico…</div>}>
+            <MatchDetail matchId={aperto} />
+          </Suspense>
+        </DrawerShell>
+      ) : null}
     </div>
   );
 }

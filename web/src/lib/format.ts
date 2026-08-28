@@ -1,0 +1,132 @@
+import type { WorkMode } from "@/db/schema";
+
+/** Formattazione condivisa fra tabella, card e drawer. Nessun `server-only`:
+ *  serve da entrambi i lati del confine. */
+
+/**
+ * La retribuzione, **solo se l'annuncio la dichiara**.
+ *
+ * È la promessa fatta nel piano e vale in tutta l'applicazione: quando
+ * `salaryIsStated` è falso si scrive "n.d." e basta. Il database contiene anche
+ * `salary_eur_year_*`, che serve a ordinare e confrontare, e alcune fonti
+ * offrono una stima algoritmica: nessuna delle due cose finisce mai in questa
+ * colonna. Una cifra stimata mostrata come se fosse dichiarata rende inservibile
+ * l'unico dato per cui si guarda quella colonna.
+ */
+export function formatSalary(row: {
+  salaryIsStated: boolean;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  salaryCurrency: string | null;
+  salaryPeriod: string | null;
+}): string {
+  if (!row.salaryIsStated) return "n.d.";
+
+  const valuta = SYMBOL[row.salaryCurrency ?? ""] ?? row.salaryCurrency ?? "";
+  const periodo = PERIOD[row.salaryPeriod ?? "yearly"] ?? "";
+  const min = row.salaryMin;
+  const max = row.salaryMax;
+
+  if (min && max && min !== max) return `${num(min)}–${num(max)} ${valuta}${periodo}`;
+  const solo = min ?? max;
+  return solo ? `${num(solo)} ${valuta}${periodo}` : "n.d.";
+}
+
+const SYMBOL: Record<string, string> = { EUR: "€", GBP: "£", USD: "$", CHF: "CHF", PLN: "zł" };
+const PERIOD: Record<string, string> = {
+  hourly: "/h",
+  daily: "/g",
+  monthly: "/mese",
+  yearly: "",
+};
+
+function num(value: number): string {
+  return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 }).format(value);
+}
+
+export function formatLocation(row: { city: string | null; country: string | null }): string {
+  return [row.city, row.country].filter(Boolean).join(", ") || "—";
+}
+
+export const WORK_MODE_LABEL: Record<WorkMode, string> = {
+  remote: "Remoto",
+  hybrid: "Ibrido",
+  on_site: "In sede",
+  unknown: "n.d.",
+};
+
+export const CONTRACT_LABEL: Record<string, string> = {
+  permanent: "Indeterminato",
+  fixed_term: "Determinato",
+  contract: "P. IVA",
+  internship: "Stage",
+  apprenticeship: "Apprendistato",
+  part_time: "Part time",
+  unknown: "n.d.",
+};
+
+export const SENIORITY_LABEL: Record<string, string> = {
+  intern: "Stage",
+  junior: "Junior",
+  mid: "Mid",
+  senior: "Senior",
+  lead: "Lead",
+  principal: "Principal",
+  unknown: "n.d.",
+};
+
+export const RUBRIC_LABEL: Record<string, string> = {
+  must_have_coverage: "Requisiti obbligatori",
+  nice_to_have_coverage: "Requisiti graditi",
+  seniority_fit: "Livello",
+  domain_fit: "Settore",
+  location_fit: "Luogo e modalità",
+  salary_fit: "Retribuzione",
+};
+
+/** I pesi della rubrica, ricopiati da `worker/jobboard/ai/rubric.py`.
+ *  Servono solo a mostrarli accanto ai sotto-punteggi: il calcolo del totale
+ *  resta di là, dove sta anche la calibrazione. */
+export const RUBRIC_WEIGHTS: Record<string, number> = {
+  must_have_coverage: 0.4,
+  nice_to_have_coverage: 0.1,
+  seniority_fit: 0.15,
+  domain_fit: 0.1,
+  location_fit: 0.15,
+  salary_fit: 0.1,
+};
+
+/**
+ * Fascia di compatibilità.
+ *
+ * Le soglie sono basse di proposito rispetto a un'intuizione da "voto in
+ * decimi": con vari criteri della rubrica a 50 — il valore che significa "non
+ * ci sono elementi per giudicare" — un annuncio davvero buono si ferma sotto
+ * 70. Colorare di rosso tutto ciò che sta sotto l'80 vorrebbe dire colorare di
+ * rosso l'intera tabella.
+ */
+export function scoreBand(score: number | null): "alto" | "medio" | "basso" | "assente" {
+  if (score === null) return "assente";
+  if (score >= 60) return "alto";
+  if (score >= 45) return "medio";
+  return "basso";
+}
+
+export function formatDate(value: Date | string | null): string {
+  if (!value) return "—";
+  const data = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(data.getTime())) return "—";
+
+  const giorni = Math.floor((Date.now() - data.getTime()) / 86_400_000);
+  if (giorni <= 0) return "oggi";
+  if (giorni === 1) return "ieri";
+  if (giorni < 30) return `${giorni} giorni fa`;
+  return new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short" }).format(data);
+}
+
+/** Gli ATS su cui la Fase 7 saprà inviare la candidatura da sola. */
+const TIER_A = new Set(["greenhouse", "lever", "ashby", "workable"]);
+
+export function isAutoApplicable(atsType: string): boolean {
+  return TIER_A.has(atsType);
+}

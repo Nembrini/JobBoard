@@ -133,17 +133,57 @@ RAL attesa. Con `MATCH_THRESHOLD=65` passa un annuncio solo.
 
 ## Fase 4 — Dashboard pubblica su Vercel · 2 gg
 
-- [ ] **4.1** **Auth.js + Google OAuth**, allowlist a una sola email, middleware su tutte le rotte tranne `/login`
-- [ ] **4.2** Route handler `GET /api/matches` con filtri, ordinamento e paginazione lato server
-- [ ] **4.3** Tabella TanStack: **Ruolo · Azienda · Luogo · Modalità · RAL · Tipo · Match % · Fonte · Azioni**
-- [ ] **4.4** Badge colorati per modalità (on-site / ibrido / remote) e per fascia di punteggio; RAL mostrata come "n.d." quando non dichiarata — **mai stimata e presentata come dichiarata**
-- [ ] **4.5** Filtri: soglia punteggio, modalità, paese, fonte, solo nuovi, nascondi già visti
-- [ ] **4.6** Drawer di dettaglio: job description completa, requisiti estratti, **gap evidenziati**, link all'annuncio originale
-- [ ] **4.7** Azioni di riga: shortlist, nascondi, **Candidati**
-- [ ] **4.8** Layout responsive: su mobile la tabella diventa lista di card, perché è da lì che la consulterai davvero
-- [ ] **4.9** Deploy in produzione e verifica che il login respinga ogni altro account Google
+- [x] **4.1** **Auth.js + Google OAuth**, allowlist a una sola email, e **due** livelli di
+      protezione: `src/proxy.ts` reindirizza chi non ha un cookie, `src/lib/dal.ts`
+      verifica la sessione accanto ai dati. Il secondo non è ridondanza: il proxy gira
+      anche sulle rotte prelevate in anticipo dal browser, quindi legge solo il cookie e
+      non può interrogare il database.
+- [x] **4.2** Route handler `GET /api/matches` con filtri, ordinamento e paginazione
+      **lato Postgres**. Il primo caricamento della dashboard non ci passa: lo fa un
+      server component che legge dal database senza far fare a Next una richiesta HTTP
+      verso sé stesso.
+- [x] **4.3** Tabella **Ruolo · Azienda · Luogo · Modalità · RAL · Tipo · Match % · Fonte ·
+      Azioni**, renderizzata dal server. Niente TanStack Table: con ordinamento e filtri
+      su Postgres resterebbe solo la definizione delle colonne, in cambio di una tabella
+      interamente client.
+- [x] **4.4** Badge per modalità e fascia di punteggio; **RAL "n.d." quando non
+      dichiarata**, mai la stima. Le soglie delle fasce sono basse di proposito: con più
+      criteri della rubrica a 50 — il valore che significa "non ci sono elementi per
+      giudicare" — un annuncio buono si ferma sotto 70.
+- [x] **4.5** Filtri: soglia, modalità, paese, fonte, solo nuovi, shortlist, nascondi già
+      visti. Vivono nella query string e non in uno stato React, così un elenco filtrato
+      è un URL che si può mandare al telefono e il tasto "indietro" fa quel che deve.
+- [x] **4.6** Drawer di dettaglio: rubrica con i pesi, motivazione, **gap evidenziati**,
+      requisiti estratti, annuncio integrale. Aperto da `?open=<id>`, quindi il tasto
+      "indietro" del telefono lo chiude.
+- [x] **4.7** Azioni di riga: shortlist, nascondi, apri. Aprire un annuncio lo segna come
+      visto da solo. `applied` non è assegnabile dalla UI: lo scrive il worker quando una
+      candidatura parte davvero.
+- [x] **4.8** Su mobile la tabella diventa lista di card, commutata dalle media query e
+      non da JavaScript: niente da idratare e nessun salto di layout.
+- [ ] **4.9** Deploy in produzione e verifica che il login respinga ogni altro account
+      Google. **Serve una credenziale OAuth da Google Cloud Console**, che è di Filippo.
 
-**Verifica:** apri l'URL Vercel dal telefono, fai login con Google, ordini per Match % e leggi una job description.
+**Verifica:** eseguita in locale sulla build di produzione, con i 153 match veri. La
+tabella mostra i punteggi ordinati, i filtri girano su Postgres (`mode=remote` 19,
+`min=50` 7, `mode=remote&min=40` 5), la paginazione tiene, il drawer mostra rubrica e
+gap, il `PATCH` cambia stato e rifiuta `applied`. Senza sessione: le pagine
+reindirizzano al login, le API rispondono `401 {"error":"non autorizzato"}`.
+
+> **Due bug che solo l'esecuzione poteva far emergere.**
+>
+> Il driver `postgres` (postgres-js) sotto Next.js 16 serve **una sola richiesta** e poi
+> smette: la prima query risponde in 150 ms, dalla seconda la connessione riutilizzata
+> non restituisce più niente. Nessun errore, nessun timeout — la richiesta si chiude solo
+> quando è il browser a rinunciare, e da fuori sembra un database lento. Identico in
+> sviluppo e in produzione. Fuori da Next lo stesso client fa quattro query di fila senza
+> un intoppo. Sostituito con `pg`: 164 ms la prima, 18 ms le successive.
+>
+> E `pg`, senza configurazione TLS esplicita, si collega **in chiaro** — la connection
+> string di Supabase non contiene `sslmode`. Il CV, i dati personali e ogni query
+> attraversavano internet senza cifratura. Con la sola `rejectUnauthorized` la
+> connessione invece fallisce, perché la catena si chiude su una CA privata di Supabase:
+> il certificato radice è ora fissato in `src/db/supabase-ca.ts`.
 
 ---
 

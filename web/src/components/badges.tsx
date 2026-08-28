@@ -1,0 +1,75 @@
+import type { WorkMode } from "@/db/schema";
+import { scoreBand, WORK_MODE_LABEL } from "@/lib/format";
+
+/**
+ * I badge colorati della tabella.
+ *
+ * Server component senza JavaScript: sono testo con uno sfondo, e spedire un
+ * bundle per disegnarli sarebbe sproporzionato.
+ */
+
+const MODE_STYLE: Record<WorkMode, string> = {
+  remote: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  hybrid: "bg-sky-500/12 text-sky-700 dark:text-sky-400",
+  on_site: "bg-amber-500/12 text-amber-700 dark:text-amber-500",
+  unknown: "bg-muted text-muted-foreground",
+};
+
+export function WorkModeBadge({ mode }: { mode: WorkMode }) {
+  return (
+    <span
+      className={`inline-flex h-6 items-center rounded-full px-2.5 text-xs font-medium whitespace-nowrap ${MODE_STYLE[mode]}`}
+    >
+      {WORK_MODE_LABEL[mode]}
+    </span>
+  );
+}
+
+const BAND_STYLE = {
+  alto: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  medio: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
+  basso: "bg-muted text-muted-foreground",
+  assente: "bg-muted text-muted-foreground",
+} as const;
+
+export function ScoreBadge({ score }: { score: number | null }) {
+  const fascia = scoreBand(score);
+  return (
+    <span
+      className={`inline-flex h-7 min-w-11 items-center justify-center rounded-lg px-2 font-mono text-sm font-semibold tabular-nums ${BAND_STYLE[fascia]}`}
+      title={
+        score === null
+          ? "Non ancora valutato dalla rubrica"
+          : "Media pesata dei sei criteri della rubrica"
+      }
+    >
+      {score ?? "—"}
+    </span>
+  );
+}
+
+/**
+ * La retribuzione. Riceve una stringa già formattata: la regola su cosa si può
+ * mostrare sta in un posto solo, in `lib/format.ts`.
+ */
+export function SalaryCell({ value }: { value: string }) {
+  if (value === "n.d.") {
+    return (
+      <span className="text-muted-foreground text-sm" title="L'annuncio non dichiara la retribuzione">
+        n.d.
+      </span>
+    );
+  }
+  return <span className="text-sm tabular-nums">{value}</span>;
+}
+
+/** Segnala gli annunci su cui la Fase 7 potrà inviare la candidatura da sola. */
+export function AutoApplyDot({ atsType }: { atsType: string }) {
+  return (
+    <span
+      className="inline-block size-1.5 rounded-full bg-violet-500"
+      title={`Candidatura automatica possibile via ${atsType}`}
+      aria-label={`Candidatura automatica possibile via ${atsType}`}
+    />
+  );
+}
