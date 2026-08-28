@@ -56,10 +56,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     #: Alto volume (~40 annunci al giorno): estrazione requisiti e rubrica.
-    model_scoring: str = "gemini-2.5-flash-lite"
+    model_scoring: str = "gemini-3.5-flash-lite"
     #: Basso volume (pochi al giorno) ma e' il documento che ti rappresenta,
     #: quindi qui si sceglie il modello migliore che il free tier consente.
-    model_cv: str = "gemini-2.5-flash"
+    model_cv: str = "gemini-3.6-flash"
 
     #: Sempre in locale su CPU, via fastembed. Nessuna chiamata di rete.
     embedding_model: str = "intfloat/multilingual-e5-small"
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     heartbeat_seconds: int = 30
 
     #: URL pubblico della dashboard, usato nei link del digest email.
-    public_app_url: str = "http://localhost:3000"
+    public_app_url: str = "https://job-board-official.vercel.app"
 
     # --- percorsi locali ------------------------------------------------------
     #: File temporanei del worker: PDF prima dell'upload, screenshot, cache del

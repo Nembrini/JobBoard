@@ -42,11 +42,11 @@ Variables del progetto Vercel. Il template è in `.env.example`.
 - [x] **0.2** Progetto Supabase region EU: Postgres + bucket privato `resumes`; **session pooler** per il worker (porta 5432) e transaction pooler per Vercel (6543)
 - [x] **0.3** SQLAlchemy + Alembic nel worker, migration applicate su Supabase: 13 tabelle, 14 indici, 16 vincoli CHECK
 - [x] **0.4** `create-next-app` in `web/`, Tailwind + shadcn/ui, tipi TypeScript generati da `jobboard gen-web-schema` *(non da `drizzle-kit pull`: va in crash sui pseudo-CHECK dei NOT NULL)*
-- [ ] **0.5** Progetto Vercel collegato al repo, environment variables, primo deploy di una pagina vuota
+- [x] **0.5** Progetto Vercel collegato al repo, environment variables, primo deploy — live su [job-board-official.vercel.app](https://job-board-official.vercel.app)
 - [x] **0.6** `.env.example`, `.gitignore`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`
 - [x] **0.7** `playwright install chromium` sul worker (~150 MB, una volta sola)
 
-**Verifica:** il sito Vercel è raggiungibile e mostra una riga scritta dal worker su Supabase.
+**Verifica:** ✅ sito live su https://job-board-official.vercel.app (HTTP 200), database Supabase raggiungibile dal worker, 13 tabelle create.
 
 ---
 

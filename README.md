@@ -8,7 +8,7 @@ Ogni giorno raccoglie annunci da più portali, li confronta con il tuo CV, li or
 compatibilità — e con un click genera un CV su misura per quel singolo annuncio e invia
 la candidatura.
 
-![Stato](https://img.shields.io/badge/stato-Fase%200%20completata-blue)
+![Stato](https://img.shields.io/badge/stato-Fase%201%20in%20corso-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
@@ -112,7 +112,7 @@ compila un form non può girare su un server.
 | Fase | | Contenuto |
 |---|---|---|
 | 0 · Fondamenta | ✅ | venv, 13 tabelle su Supabase, Alembic, Next.js, shadcn, Playwright |
-| 1 · Profilo e CV master | ⬜ | Parsing PDF/DOCX, `MasterProfile`, revisione in UI |
+| 1 · Profilo e CV master | 🔨 | Parsing PDF/DOCX, `MasterProfile`, revisione in UI |
 | 2 · Ingestione | ⬜ | Adzuna, Jooble, Arbeitnow, Remotive, Greenhouse/Lever/Ashby, JSearch |
 | 3 · Matching | ⬜ | Imbuto a 3 stadi, calibrazione dei pesi |
 | 4 · Dashboard | ⬜ | Auth Google, tabella, filtri, drawer di dettaglio |
