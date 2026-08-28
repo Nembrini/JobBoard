@@ -8,6 +8,7 @@ il consumer lo raccoglie.
 from __future__ import annotations
 
 import platform
+import sys
 from typing import Annotated
 
 import typer
@@ -15,7 +16,30 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
+from .commands import candidate_app, profile_app
 from .config import get_settings
+
+
+def _force_utf8_output() -> None:
+    """Scrive sempre in UTF-8, qualunque codepage abbia la console.
+
+    Su Windows Python apre stdout con la codepage locale — ``cp1252`` quando
+    l'output e' rediretto o il comando gira da Task Scheduler. Stampare un
+    carattere che quella tabella non contiene non produce un ``?``: solleva
+    ``UnicodeEncodeError`` e **termina il processo**. In un progetto che tratta
+    annunci in mezza Europa e' questione di giorni: basta un'azienda ceca, un
+    nome polacco o un accento combinante uscito dal PDF di un CV.
+
+    ``errors="replace"`` copre il caso residuo di testo malformato: e' preferibile
+    un carattere sbagliato a una run notturna che muore a meta'.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:  # pytest sostituisce gli stream con oggetti propri
+            reconfigure(encoding="utf-8", errors="replace")
+
+
+_force_utf8_output()
 
 app = typer.Typer(
     name="jobboard",
@@ -23,6 +47,8 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+app.add_typer(profile_app)
+app.add_typer(candidate_app)
 console = Console()
 
 
@@ -87,6 +113,7 @@ def doctor(
     behaviour.add_row("LLM_PROVIDER", settings.llm_provider)
     behaviour.add_row("MODEL_SCORING", settings.model_scoring)
     behaviour.add_row("MODEL_CV", settings.model_cv)
+    behaviour.add_row("EMBEDDING_MODEL", settings.embedding_model)
     behaviour.add_row("DAILY_APPLICATION_CAP", str(settings.daily_application_cap))
     behaviour.add_row("MATCH_THRESHOLD", str(settings.match_threshold))
     behaviour.add_row("DAILY_RUN_HOUR", f"{settings.daily_run_hour:02d}:00")
@@ -96,6 +123,7 @@ def doctor(
     if check_db:
         _check_database()
 
+    _check_embedding()
     _check_playwright()
 
 
@@ -110,6 +138,33 @@ def _check_database() -> None:
         console.print(f"[green]Database raggiungibile[/] — {str(server).split(',')[0]}")
     except Exception as exc:  # pragma: no cover - dipende dall'ambiente
         console.print(f"[red]Database non raggiungibile[/] — {type(exc).__name__}: {exc}")
+
+
+def _check_embedding() -> None:
+    """Verifica il modello di embedding **senza scaricarlo**.
+
+    Il primo scaricamento e' di alcune centinaia di MB: farlo partire da un comando
+    diagnostico sarebbe una sorpresa sgradevole, quindi qui si guarda solo la cache.
+    """
+    from .ai.embeddings import KNOWN_MODELS
+
+    settings = get_settings()
+    if settings.embedding_model not in KNOWN_MODELS:
+        console.print(
+            f"[red]EMBEDDING_MODEL sconosciuto[/] — {settings.embedding_model}. "
+            f"Ammessi: {', '.join(sorted(KNOWN_MODELS))}"
+        )
+        return
+
+    cache = settings.embedding_cache_dir
+    folder = f"models--{settings.embedding_model.replace('/', '--')}"
+    if (cache / folder).exists():
+        console.print(f"[green]Modello di embedding gia' in cache[/] — {cache / folder}")
+    else:
+        console.print(
+            f"[yellow]Modello di embedding da scaricare[/] — {settings.embedding_model}, "
+            "circa 450 MB da scaricare al primo uso"
+        )
 
 
 def _check_playwright() -> None:

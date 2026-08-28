@@ -150,12 +150,33 @@ dipendenza pesante invece di due.
 
 ### fastembed (ONNX su CPU) con `intfloat/multilingual-e5-small`
 
-384 dimensioni, ~120 MB, **multilingua** — essenziale con annunci misti IT/EN/DE. Gira
-su CPU senza toccare la GPU da 4 GB, che non basterebbe comunque per un LLM decente.
+384 dimensioni, **multilingua** — essenziale con annunci misti IT/EN/DE. Gira su CPU
+senza toccare la GPU da 4 GB, che non basterebbe comunque per un LLM decente. Misurato
+su questa macchina: **154 ms per annuncio**, cioè ~80 secondi per una run da 500 annunci.
+Irrilevante per un processo notturno.
 
-I vettori stanno come `bytea` in Postgres e vengono caricati in un array numpy dal
-worker: sotto i 10.000 annunci il cosine brute-force è istantaneo. Nessuna estensione
-vettoriale da installare e mantenere.
+I vettori stanno come `bytea` in Postgres — float32 little-endian esplicito, non il byte
+order nativo — e vengono caricati in un array numpy dal worker: sotto i 10.000 annunci
+il cosine brute-force è istantaneo. Nessuna estensione vettoriale da installare e
+mantenere.
+
+Tre vincoli di questo modello, tutti verificati sul campo e tutti nascosti nella
+documentazione di terzi:
+
+- **fastembed 0.8 non lo include** fra i modelli integrati: ha solo la variante `large`
+  da 2.24 GB. Viene registrato a mano dal repo ufficiale con `add_custom_model`, con
+  pooling *mean* e normalizzazione L2 come da model card.
+- **Occupa 449 MB su disco**, non i ~120 MB che il nome "small" suggerisce: i pesi stanno
+  quasi tutti nella matrice di embedding da 250.000 token del vocabolario multilingua,
+  non nei layer. Esiste nello stesso repo una variante int8 a un quarto dello spazio:
+  è un cambio di `model_file` nella `ModelSpec`, se un giorno servisse.
+- **I prefissi `query:` e `passage:` sono obbligatori.** La famiglia E5 è addestrata
+  così. Ometterli non solleva niente: peggiora i risultati in silenzio. Stanno nella
+  `ModelSpec`, non nel chiamante, e un modello senza `ModelSpec` viene rifiutato invece
+  di essere usato con i prefissi sbagliati.
+- **Il troncamento è a 512 token**, circa 350 parole. Il testo di un annuncio va quindi
+  composto mettendo davanti ciò che conta: titolo, azienda, requisiti. Quello che sta
+  dopo non viene letto.
 
 ### LLM: provider intercambiabile, Gemini free tier di default
 
@@ -228,11 +249,12 @@ STADIO 0 — HARD FILTER          (SQL, costo zero)                ~500 -> ~150
 
 STADIO 1 — SEMANTIC             (embedding locale, costo zero)   ~150 -> 40
   cosine(profile_emb, job_emb)  su testo normalizzato
+  spread(...)  <- riscalamento min-max DENTRO il lotto del giorno
   + BM25/rapidfuzz su skill keywords   <- cattura i match esatti di tecnologia
     che l'embedding da solo diluisce
-  score_ibrido = 0.6*cosine + 0.4*bm25_norm
+  score_ibrido = 0.6*spread(cosine) + 0.4*bm25_norm
 
-STADIO 2 — RUBRICA LLM          (Haiku, Batch API)               40 -> score finale
+STADIO 2 — RUBRICA LLM          (Gemini Flash Lite)              40 -> score finale
   must_have_coverage    40%
   nice_to_have          10%
   seniority_fit         15%
@@ -245,6 +267,34 @@ STADIO 2 — RUBRICA LLM          (Haiku, Batch API)               40 -> score f
 Perché lo Stadio 1 è ibrido e non solo embedding: un annuncio che chiede *Kubernetes* e
 un CV che lo cita hanno un match lessicale esatto che il cosine su testo lungo
 diluisce. BM25 lo recupera.
+
+#### Perché il coseno va riscalato prima di essere combinato
+
+Misurato con il modello di embedding scelto, contro il profilo reale:
+
+| Annuncio | cosine |
+|---|---|
+| Mobile Developer Flutter/Android | 0.8966 |
+| Junior Software Engineer fullstack | 0.8830 |
+| Backend Developer Java | 0.8790 |
+| Cuoco per ristorante di pesce | 0.8177 |
+| Senior ML Research Scientist, PhD | 0.8102 |
+| Infermiere professionale | 0.7993 |
+
+L'ordinamento è corretto — i tre pertinenti stanno sopra i tre non pertinenti — ma
+**l'intero intervallo utile è largo 0.08**, e un lavoro che non ha nulla a che vedere
+con il profilo prende comunque 0.80. È una proprietà nota dei modelli E5, non un difetto
+di questi dati.
+
+Due conseguenze operative:
+
+1. **Nessuna soglia assoluta sul coseno.** "Scarta sotto 0.75" non scarterebbe niente;
+   "sotto 0.85" scarterebbe metà dei lavori giusti. Lo Stadio 1 ordina e prende i
+   primi N, non filtra per valore.
+2. **Il coseno grezzo non si somma a BM25.** Sommato così com'è contribuirebbe con una
+   costante di ~0.8 più una variazione di 0.08: peso dichiarato 60%, peso reale ~5%. La
+   funzione `spread()` porta il lotto del giorno sull'intervallo 0-1 prima della
+   combinazione, così i pesi significano quello che dicono.
 
 I pesi dello Stadio 2 si tarano con `scripts/calibrate.py` su 20-30 annunci etichettati
 a mano.

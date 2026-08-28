@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from jobboard.ai.client import _to_gemini_schema
 from jobboard.cv.extract import ExtractedDocument
 from jobboard.cv.structure import _assign_ids, _normalize, _warnings
@@ -201,3 +203,55 @@ def test_no_warnings_on_a_healthy_profile() -> None:
     )
 
     assert _warnings(profile, _doc()) == []
+
+
+# --- normalizzazione delle date ----------------------------------------------
+
+
+def test_a_bare_year_becomes_january() -> None:
+    """Regressione reale: il modello ha risposto '2024' e la validazione e' fallita.
+
+    Il prompt chiede gia' YYYY-MM, ma chiederlo non basta. Gennaio e' una
+    convenzione applicata sia a inizio sia a fine, cosi' la durata resta corretta.
+    """
+    data = _normalize({"education": [{"start": "2021", "end": "2024"}]})
+    assert data["education"][0] == {"start": "2021-01", "end": "2024-01"}
+
+
+@pytest.mark.parametrize(
+    ("scritto", "atteso"),
+    [
+        ("2024-3", "2024-03"),
+        ("2024-03-15", "2024-03"),
+        ("03/2024", "2024-03"),
+        ("3/2024", "2024-03"),
+        ("2024/03", "2024-03"),
+        ("2024-03", "2024-03"),
+    ],
+)
+def test_the_usual_date_shapes_are_understood(scritto: str, atteso: str) -> None:
+    data = _normalize({"experiences": [{"start": scritto}]})
+    assert data["experiences"][0]["start"] == atteso
+
+
+@pytest.mark.parametrize("scritto", ["presente", "Present", "in corso", "attuale", ""])
+def test_an_ongoing_role_has_no_end_date(scritto: str) -> None:
+    """Nel modello 'in corso' si esprime con l'assenza della data, non con una parola."""
+    data = _normalize({"experiences": [{"start": "2024-01", "end": scritto}]})
+    assert data["experiences"][0]["end"] is None
+
+
+def test_an_unrecognisable_date_is_left_to_the_schema() -> None:
+    """Meglio un errore di validazione che una data inventata."""
+    data = _normalize({"experiences": [{"start": "primavera 2024"}]})
+    assert data["experiences"][0]["start"] == "primavera 2024"
+
+
+def test_an_impossible_month_is_not_accepted() -> None:
+    data = _normalize({"experiences": [{"start": "2024-13"}]})
+    assert data["experiences"][0]["start"] == "2024-13"
+
+
+def test_certification_dates_are_normalised_too() -> None:
+    data = _normalize({"certifications": [{"issued": "2023", "expires": "12/2026"}]})
+    assert data["certifications"][0] == {"issued": "2023-01", "expires": "2026-12"}

@@ -54,14 +54,19 @@ Variables del progetto Vercel. Il template è in `.env.example`.
 
 - [x] **1.1** Estrazione testo da PDF/DOCX: doppio estrattore con scelta gerarchica — integrità delle parole, poi cifre conservate, poi qualità della prosa
 - [x] **1.2** Schema Pydantic `MasterProfile` con id stabili e bullet in forma ACR
-- [~] **1.3** Structuring LLM testo → `MasterProfile` — *funzionante, JSON in `data/cv/master_profile.json`; manca la revisione in UI*
-- [ ] **1.4** `CandidateProfile`: le risposte standard ai form ATS (telefono, LinkedIn, GitHub, work authorization, preavviso, RAL attesa)
-- [ ] **1.5** Embedding del profilo con fastembed
+- [x] **1.3** Structuring LLM testo → `MasterProfile`, con normalizzazione deterministica delle date e id assegnati dal codice
+- [x] **1.4** `CandidateAnswers`: le risposte standard ai form ATS (telefono, LinkedIn, GitHub, work authorization, preavviso, RAL attesa)
+- [x] **1.5** Embedding del profilo con fastembed, in locale su CPU
+- [x] **1.6** Persistenza su Supabase e comandi `profile import` / `load` / `embed` / `show`, `candidate init` / `load` / `show`
+- [~] **1.7** Revisione campo per campo in dashboard — *rimandata alla Fase 4, dove la UI esiste già. Per ora la revisione si fa sul JSON in VS Code*
 
 > **1.3 è il punto critico dell'intero progetto.** Ogni punteggio di compatibilità e ogni
 > CV generato derivano da questo JSON. Va corretto a mano una volta sola, ma va corretto bene.
+> Il flag `reviewed` sulla tabella `profile` esiste apposta: la pipeline di matching non
+> parte finché è `false`.
 
-**Verifica:** carichi il tuo CV, la UI mostra il profilo estratto, lo correggi e lo salvi.
+**Verifica:** `jobboard profile import CV.pdf` → correggi il JSON → `jobboard profile load`
+→ `jobboard profile show` rilegge dal database profilo, flag di revisione ed embedding.
 
 ---
 

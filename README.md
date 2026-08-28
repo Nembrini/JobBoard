@@ -58,7 +58,7 @@ Ogni stadio scarta il più possibile con il metodo più economico disponibile:
 |---|---|---|---|
 | 0 · Hard filter | SQL: lingua, work authorization, seniority, location | zero | ~150 su 500 |
 | 1 · Semantico | Embedding multilingua in locale + BM25 sulle keyword | zero | 40 |
-| 2 · Rubrica | Gemini 2.5 Flash-Lite, 6 criteri pesati | free tier | punteggio finale |
+| 2 · Rubrica | Gemini Flash Lite, 6 criteri pesati | free tier | punteggio finale |
 
 ## Architettura
 
@@ -112,7 +112,7 @@ compila un form non può girare su un server.
 | Fase | | Contenuto |
 |---|---|---|
 | 0 · Fondamenta | ✅ | venv, 13 tabelle su Supabase, Alembic, Next.js, shadcn, Playwright |
-| 1 · Profilo e CV master | 🔨 | Parsing PDF/DOCX, `MasterProfile`, revisione in UI |
+| 1 · Profilo e CV master | ✅ | Parsing PDF/DOCX, `MasterProfile`, risposte ATS, embedding locale |
 | 2 · Ingestione | ⬜ | Adzuna, Jooble, Arbeitnow, Remotive, Greenhouse/Lever/Ashby, JSearch |
 | 3 · Matching | ⬜ | Imbuto a 3 stadi, calibrazione dei pesi |
 | 4 · Dashboard | ⬜ | Auth Google, tabella, filtri, drawer di dettaglio |

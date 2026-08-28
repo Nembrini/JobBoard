@@ -96,7 +96,63 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
         name = contact.get("full_name")
         if isinstance(name, str) and name.isupper():
             contact["full_name"] = name.title()
+
+    for key, fields in _DATE_FIELDS.items():
+        for item in data.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            for field in fields:
+                if field in item:
+                    item[field] = _normalize_month(item[field])
     return data
+
+
+#: Dove stanno le date, per sezione.
+_DATE_FIELDS: dict[str, tuple[str, ...]] = {
+    "experiences": ("start", "end"),
+    "education": ("start", "end"),
+    "certifications": ("issued", "expires"),
+}
+
+#: Le forme in cui un LLM scrive una data, in ordine di frequenza osservata.
+_MONTH_FORMS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^(?P<y>\d{4})-(?P<m>\d{1,2})(?:-\d{1,2})?$"),  # 2024-3, 2024-03-15
+    re.compile(r"^(?P<m>\d{1,2})[/.](?P<y>\d{4})$"),  # 03/2024
+    re.compile(r"^(?P<y>\d{4})[/.](?P<m>\d{1,2})$"),  # 2024/03
+)
+
+#: Come il modello puo' scrivere "sto ancora lavorando qui".
+_ONGOING = frozenset({"", "presente", "present", "current", "attuale", "oggi", "in corso", "n/a"})
+
+
+def _normalize_month(value: Any) -> Any:
+    """Porta una data a ``YYYY-MM``, o la lascia com'e' se non la riconosce.
+
+    Il prompt chiede gia' questo formato, ma il modello a volte risponde ``2024``
+    o ``03/2024``: prima di questa funzione bastava una sola data cosi' per far
+    fallire la validazione dell'intero profilo, dopo sette secondi di chiamata.
+    Cio' che resta irriconoscibile passa oltre e viene rifiutato dallo schema,
+    che e' il comportamento giusto: meglio un errore che una data inventata.
+
+    Un anno senza mese diventa gennaio. E' una convenzione, non un dato: applicata
+    a inizio **e** fine, conserva la durata corretta di un percorso di studi.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+    if text.lower() in _ONGOING:
+        return None
+    if re.fullmatch(r"\d{4}", text):
+        return f"{text}-01"
+    for pattern in _MONTH_FORMS:
+        if match := pattern.match(text):
+            month = int(match["m"])
+            if 1 <= month <= 12:
+                return f"{match['y']}-{month:02d}"
+    return text
 
 
 # --- assegnazione degli id ---------------------------------------------------

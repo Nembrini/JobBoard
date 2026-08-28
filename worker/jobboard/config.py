@@ -61,8 +61,21 @@ class Settings(BaseSettings):
     #: quindi qui si sceglie il modello migliore che il free tier consente.
     model_cv: str = "gemini-3.6-flash"
 
-    #: Sempre in locale su CPU, via fastembed. Nessuna chiamata di rete.
+    #: Sempre in locale su CPU, via fastembed. Nessuna chiamata di rete dopo il
+    #: primo scaricamento. I modelli ammessi sono elencati in
+    #: ``jobboard.ai.embeddings.KNOWN_MODELS``: uno fuori da quell'elenco viene
+    #: rifiutato, perche' ognuno ha i suoi prefissi obbligatori.
     embedding_model: str = "intfloat/multilingual-e5-small"
+
+    @property
+    def embedding_cache_dir(self) -> Path:
+        """Dove fastembed conserva il modello scaricato.
+
+        Sotto ``data/`` e non nella cartella temporanea di sistema, che e' il suo
+        default: Windows la svuota, e riscaricare mezzo giga a ogni pulizia e' tempo
+        perso a ogni run.
+        """
+        return self.data_dir / "models"
 
     @property
     def llm_api_key(self) -> SecretStr:
