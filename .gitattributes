@@ -1,0 +1,27 @@
+# Normalizza i fine riga: LF nel repository, conversione automatica in locale.
+# Senza questo, lavorando da Windows ogni file risulterebbe modificato per il solo
+# passaggio CRLF/LF, sporcando ogni diff.
+* text=auto eol=lf
+
+# File che devono restare CRLF anche su disco
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binari: mai toccare
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.onnx binary
+
+# Riduce il rumore nei diff e nelle review
+package-lock.json linguist-generated=true -diff
+web/src/db/schema.ts linguist-generated=true
+worker/alembic/versions/*.py linguist-generated=true

@@ -1,0 +1,42 @@
+# --- Segreti: mai committare ---
+.env
+.env.*
+!.env.example
+
+# --- Dati personali e output generati ---
+data/
+*.pdf
+*.docx
+!docs/**/*.pdf
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+
+# --- Playwright ---
+playwright-report/
+test-results/
+screenshots/
+
+# --- OS / editor ---
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
