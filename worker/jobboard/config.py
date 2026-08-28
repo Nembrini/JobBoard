@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     )
 
     # --- database -------------------------------------------------------------
-    #: Connessione DIRETTA a Supabase. Il worker e' un processo long-running con
-    #: poche connessioni stabili, quindi non passa dal pooler (che serve a Vercel).
+    #: SESSION pooler di Supabase (porta 5432): la connessione resta assegnata per tutta
+    #: la sessione, quindi prepared statement e transazioni lunghe funzionano.
+    #: Non l'host diretto ``db.<ref>.supabase.co``: pubblica solo un record AAAA e su
+    #: una rete senza IPv6 non si risolve nemmeno.
     database_url: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/jobboard"
     )

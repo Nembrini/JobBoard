@@ -116,10 +116,24 @@ Un solo servizio copre **Postgres** e lo **storage dei PDF**, con region EU sele
 (si tratta del CV e dei dati personali di Filippo) e signed URL nativi. Con una run
 giornaliera il progetto free non va mai in pausa.
 
-- Vercel si connette tramite il pooler **Supavisor**: le funzioni serverless aprono e
-  chiudono connessioni continuamente, e una connessione diretta esaurirebbe il pool
-- il worker usa la **connessione diretta**, essendo un processo long-running con poche
-  connessioni stabili
+Entrambi i lati passano dal pooler **Supavisor**, ma da due porte diverse:
+
+| Chi | Porta | Modalità | Perché |
+|---|---|---|---|
+| Worker, Alembic | `5432` | **Session pooler** | La connessione resta assegnata per tutta la sessione: prepared statement e transazioni lunghe funzionano come su una connessione diretta |
+| Vercel | `6543` | **Transaction pooler** | La connessione torna nel pool a fine transazione. Le funzioni serverless ne aprono e chiudono di continuo, e senza pooler esaurirebbero i posti disponibili |
+
+Il transaction pooler impone `prepare: false` lato client: i prepared statement
+sopravvivono alla connessione logica e il pooler li reindirizzerebbe a sessioni diverse,
+facendo fallire query che in locale funzionano.
+
+> **Perché non la connessione diretta per il worker.** Sembrerebbe la scelta naturale per
+> un processo long-running, ed era il piano iniziale. Ma l'host diretto
+> `db.<ref>.supabase.co` pubblica **solo un record AAAA**: è raggiungibile unicamente via
+> IPv6, e l'indirizzo IPv4 è un add-on a pagamento. Su una rete senza IPv6 la
+> risoluzione DNS fallisce prima ancora di tentare la connessione. Il session pooler ha
+> record A regolari e offre le stesse garanzie di sessione, quindi è la scelta corretta
+> anche a prescindere.
 
 ### Python 3.12 nel worker, non 3.14
 
