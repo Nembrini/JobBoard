@@ -158,10 +158,21 @@ stampare il valore di un segreto.
 
 ```bash
 cd web
-npm install
+npm.cmd install
 cp .env.local.example .env.local  # poi compila le chiavi
-npm run dev
 ```
+
+Poi, dalla radice del progetto:
+
+```bash
+.\web dev
+```
+
+`web.cmd` esiste per lo stesso motivo di `jb.cmd`: su Windows con execution policy
+`AllSigned` il comando `npm` e' lo script `npm.ps1`, non e' firmato e PowerShell lo
+rifiuta. `npm.cmd` non e' uno script PowerShell e passa senza dover abbassare una
+impostazione di sicurezza dell'intera macchina. Funzionano `.\web dev`, `.\web build`,
+`.\web lint`.
 
 </details>
 
