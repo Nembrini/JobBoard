@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .commands import candidate_app, profile_app
+from .commands import candidate_app, ingest_command, profile_app, sources_app
 from .config import get_settings
 
 
@@ -49,6 +49,8 @@ app = typer.Typer(
 )
 app.add_typer(profile_app)
 app.add_typer(candidate_app)
+app.add_typer(sources_app)
+app.command(name="ingest")(ingest_command)
 console = Console()
 
 
@@ -197,19 +199,6 @@ def gen_web_schema() -> None:
     console.print(
         f"[green]Scritte {table_count()} tabelle[/] in {target.relative_to(target.parents[3])}"
     )
-
-
-@app.command()
-def ingest(
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run/--commit", help="Stampa senza scrivere sul database.")
-    ] = True,
-    source: Annotated[
-        str | None, typer.Option("--source", help="Limita a un singolo adapter.")
-    ] = None,
-) -> None:
-    """Raccoglie annunci dalle fonti attive. [Fase 2]"""
-    raise typer.Exit(_not_implemented("ingest", "Fase 2"))
 
 
 @app.command()

@@ -113,7 +113,7 @@ compila un form non può girare su un server.
 |---|---|---|
 | 0 · Fondamenta | ✅ | venv, 13 tabelle su Supabase, Alembic, Next.js, shadcn, Playwright |
 | 1 · Profilo e CV master | ✅ | Parsing PDF/DOCX, `MasterProfile`, risposte ATS, embedding locale |
-| 2 · Ingestione | ⬜ | Adzuna, Jooble, Arbeitnow, Remotive, Greenhouse/Lever/Ashby, JSearch |
+| 2 · Ingestione | ✅ | 10 adapter, normalizzazione, parsing RAL, dedup SimHash |
 | 3 · Matching | ⬜ | Imbuto a 3 stadi, calibrazione dei pesi |
 | 4 · Dashboard | ⬜ | Auth Google, tabella, filtri, drawer di dettaglio |
 | 5 · Ponte UI↔worker | ⬜ | Coda task, heartbeat, progresso |

@@ -303,12 +303,75 @@ a mano.
 
 Chiave canonica: `normalize(company) + normalize(title) + normalize(city)`.
 
-In caso di collisione si confronta il **SimHash** della description, soglia 0.85. Se
-combaciano è lo stesso annuncio: si tiene un solo `job` e si aggiunge un
-`job_source_link`.
+In caso di collisione si confronta il **SimHash** della description a 64 bit, con soglia
+di 10 bit di distanza di Hamming — l'85% di somiglianza. Due testi indipendenti ne
+differiscono di una trentina, quindi la soglia non è delicata. Due vincoli imparati
+sul campo:
 
-Come `apply_url` vince **sempre** il link ATS diretto (Greenhouse/Lever/Ashby) su quello
-dell'aggregatore: è l'unico che abilita l'invio automatico.
+- **Il confronto per contenuto vale solo dentro la stessa azienda.** Le agenzie
+  ripubblicano lo stesso testo per clienti diversi: unirli nasconderebbe un annuncio vero.
+- **Sotto i 300 caratteri il SimHash non si usa.** L'estratto di due righe che
+  restituisce Jooble produce impronte sostanzialmente casuali.
+
+### Le varianti si fondono, non si scelgono
+
+Quando lo stesso annuncio arriva da tre fonti non se ne tiene una buttando le altre:
+ognuna può avere il pezzo che manca alle altre. L'aggregatore conosce la RAL, la board
+ATS ha la descrizione completa e il link al form vero.
+
+| Campo | Chi vince |
+|---|---|
+| `apply_url`, `ats_*` | La variante con ATS di Tier A — è l'unica che abilita l'invio automatico |
+| `description` | La più lunga: Jooble dà due righe, Lever l'annuncio intero |
+| RAL | La prima che la dichiara davvero |
+| `posted_at` | La **più vecchia**: gli aggregatori riportano quando hanno indicizzato, non quando l'annuncio è uscito |
+
+### Le classificazioni si ricalcolano a ogni run
+
+`job_family`, `work_mode`, `seniority` e `contract_type` vengono riscritti a ogni
+passaggio, non solo alla prima comparsa. Le regole di normalizzazione cambiano, e senza
+questo un annuncio resterebbe classificato con il codice del giorno in cui è stato visto
+per la prima volta. È successo davvero: dopo aver insegnato al classificatore i nomi
+composti tedeschi, ventidue annunci già in tabella continuavano a non avere famiglia.
+
+## 8bis. Le fonti
+
+Dieci adapter dietro la stessa interfaccia. Rate limiting e retry stanno nel client HTTP
+condiviso: sono errori che si fanno una volta per fonte, e con dieci fonti diventano
+dieci occasioni di farli.
+
+| Fonte | Chiave | Copre | Note |
+|---|---|---|---|
+| Adzuna | gratuita | IT, DE, NL, ES, FR, UK | La più importante per il mercato italiano on-site |
+| Jooble | gratuita | multi-paese | Restituisce un **estratto**, non la descrizione: è una fonte di segnalazione |
+| JSearch | RapidAPI | LinkedIn, Indeed, Glassdoor | ~6 chiamate al giorno: budget esplicito, query in ordine di priorità |
+| Arbeitnow | nessuna | Germania + remote | Board intera, filtrata in locale |
+| Remotive | nessuna | remote worldwide | Tre chiamate per categoria, filtro in locale |
+| RemoteOK | nessuna | remote worldwide | I ToS chiedono di citare la fonte e linkare l'annuncio |
+| Greenhouse, Lever, Ashby, Workable | nessuna | board delle aziende seguite | **Le fonti migliori**: descrizione completa e link al form vero |
+
+Tre trappole trovate provandole, tutte silenziose:
+
+1. **Il primo elemento dell'array di RemoteOK non è un annuncio**, è l'avviso legale.
+2. **Le RAL assenti di RemoteOK valgono `0`, non `null`.** Uno zero preso per buono
+   diventa un annuncio "da 0 €" ordinato in fondo come se la cifra fosse dichiarata.
+3. **Greenhouse e Arbeitnow restituiscono l'HTML con le entità già codificate**: senza
+   `unescape` la descrizione è un muro di `&lt;p&gt;`.
+
+### Il filtro per parole chiave confronta parole, non frasi
+
+Le fonti che restituiscono l'intera board vanno filtrate in locale, altrimenti una sola
+azienda grande porta centinaia di annunci di vendita e amministrazione nella pipeline —
+e ognuno costa un embedding. La prima versione cercava la frase come sottostringa: con
+`"software developer"` non trovava né *Senior Software Engineer* né *Backend Developer*,
+cioè esattamente gli annunci da tenere. Quattro fonti su dieci restituivano zero
+risultati. Ora basta che una parola significativa compaia nel titolo, con match per
+prefisso dai quattro caratteri in su (`developer` trova anche `developers`,
+`software` trova anche `Softwareentwickler`).
+
+I termini di ricerca vengono seminati dal CV — headline più le famiglie dei ruoli svolti
+— **e tradotti in italiano**: un annuncio milanese si intitola "Sviluppatore Backend", e
+cercando solo in inglese il mercato principale resta invisibile.
 
 ## 9. Generazione del CV
 

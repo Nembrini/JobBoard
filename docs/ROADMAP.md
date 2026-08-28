@@ -72,15 +72,22 @@ Variables del progetto Vercel. Il template è in `.env.example`.
 
 ## Fase 2 — Ingestione · 2 gg
 
-- [ ] **2.1** Interfaccia `SourceAdapter` con firma `fetch(query) -> list[RawJob]`, registry degli adapter, rate limiter per fonte, retry con backoff esponenziale
-- [ ] **2.2** Adapter gratuiti: **Adzuna** (IT/DE/NL/ES/FR/UK), **Jooble**, **Arbeitnow**, **Remotive**, **RemoteOK**
-- [ ] **2.3** Adapter ATS sulle company board seguite, con UI per aggiungerne: **Greenhouse**, **Lever**, **Ashby**, **Workable**
-- [ ] **2.4** Adapter **JSearch** (Google for Jobs, quindi LinkedIn/Indeed/Glassdoor). Free tier ~200 chiamate/mese, circa 6 al giorno: le query vanno batchate e prioritizzate, non una per ruolo
-- [ ] **2.5** Normalizzazione: work_mode, seniority, tipo contratto, **parsing RAL multi-valuta e multi-periodo** (€/anno, €/mese, £/anno, $/ora convertiti in RAL annua lorda), rilevamento lingua
-- [ ] **2.6** Dedup canonico + SimHash, con preferenza per l'apply_url ATS
-- [ ] **2.7** Tabella `run` e logging strutturato per fonte
+- [x] **2.1** Interfaccia `SourceAdapter` con registry, rate limiter e retry con backoff, tutti nel client HTTP condiviso invece che in ogni adapter
+- [x] **2.2** Adapter gratuiti: **Adzuna** (IT/DE/NL/ES/FR/UK), **Jooble**, **Arbeitnow**, **Remotive**, **RemoteOK**
+- [x] **2.3** Adapter ATS sulle company board seguite: **Greenhouse**, **Lever**, **Ashby**, **Workable**, con `jobboard sources boards` per aggiungerne
+- [x] **2.4** Adapter **JSearch** (Google for Jobs, quindi LinkedIn/Indeed/Glassdoor), con budget giornaliero esplicito e query consumate in ordine di priorità
+- [x] **2.5** Normalizzazione: work_mode, seniority, tipo contratto, famiglia di ruolo, **parsing RAL multi-valuta e multi-periodo** con mensilità italiane, rilevamento lingua
+- [x] **2.6** Dedup canonico + SimHash, con fusione delle varianti: vince il link ATS, la descrizione più lunga, la RAL dichiarata e la data più vecchia
+- [x] **2.7** Tabella `run` con esito, conteggi e chiamate API per fonte
+- [~] **2.8** Chiavi Adzuna e Jooble in `worker/.env` — *le fonti restano spente finché non ci sono*
 
-**Verifica:** `python -m jobboard.cli ingest --dry-run` stampa gli annunci normalizzati fonte per fonte, senza scrivere nulla.
+> **La retribuzione predetta va scartata.** Adzuna restituisce una RAL anche quando
+> l'annuncio non ne dichiara alcuna, marcandola con `salary_is_predicted`. La dashboard
+> promette *"RAL se dichiarata"*: una stima esibita come dato la renderebbe inaffidabile.
+
+**Verifica:** `jobboard ingest --dry-run` stampa gli annunci normalizzati fonte per
+fonte senza scrivere nulla. Misurato sulle sole fonti senza chiave: **181 annunci
+raccolti, 154 distinti, 13 chiamate API**, di cui 73 con link ATS diretto.
 
 ---
 
