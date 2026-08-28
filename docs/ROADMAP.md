@@ -52,9 +52,9 @@ Variables del progetto Vercel. Il template è in `.env.example`.
 
 ## Fase 1 — Profilo e CV master · 1 gg
 
-- [ ] **1.1** Upload CV PDF/DOCX e estrazione testo: `pypdfium2` con fallback `pdfplumber`, `python-docx` per i .docx
-- [ ] **1.2** Schema Pydantic `MasterProfile`: anagrafica, esperienze con bullet pronti per il framework ACR, skill hard e soft, formazione, lingue, progetti, certificazioni
-- [ ] **1.3** Structuring LLM da testo a `MasterProfile`, con revisione campo per campo in UI
+- [x] **1.1** Estrazione testo da PDF/DOCX: doppio estrattore con scelta gerarchica — integrità delle parole, poi cifre conservate, poi qualità della prosa
+- [x] **1.2** Schema Pydantic `MasterProfile` con id stabili e bullet in forma ACR
+- [~] **1.3** Structuring LLM testo → `MasterProfile` — *funzionante, JSON in `data/cv/master_profile.json`; manca la revisione in UI*
 - [ ] **1.4** `CandidateProfile`: le risposte standard ai form ATS (telefono, LinkedIn, GitHub, work authorization, preavviso, RAL attesa)
 - [ ] **1.5** Embedding del profilo con fastembed
 

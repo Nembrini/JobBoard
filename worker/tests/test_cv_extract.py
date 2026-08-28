@@ -7,13 +7,21 @@ from pathlib import Path
 import pytest
 
 from jobboard.cv import ExtractionError, extract
-from jobboard.cv.extract import _clean, _quality
+from jobboard.cv.extract import (
+    _MIN_WORD_INTEGRITY,
+    _Candidate,
+    _clean,
+    _numeric_tokens,
+    _pick_best,
+    _quality,
+    _word_integrity,
+)
 
 
 def test_single_column_pdf(single_column_cv: Path) -> None:
     doc = extract(single_column_cv)
 
-    assert doc.method == "pypdfium2", "un CV a colonna singola non deve costare il fallback"
+    assert doc.method in ("pypdfium2", "pdfplumber")
     assert doc.pages == 1
     assert doc.language == "it"
     # Le frasi devono restare intere, non spezzate o intrecciate.
@@ -74,6 +82,44 @@ def test_empty_pdf_is_rejected_with_a_useful_message(tmp_path: Path) -> None:
         extract(target)
 
 
+# --- scelta fra estrattori ---------------------------------------------------
+
+
+def test_pick_best_prefers_the_extraction_that_kept_the_numbers() -> None:
+    """Regressione su un caso reale.
+
+    Su un CV vero pypdfium2 ha prodotto un testo di qualita' superiore ma senza
+    la cifra "239": "distribuite su circa 239 robot" diventava "circa robot".
+    Le cifre sono i Result dei bullet ACR, quindi vincono sulla prosa.
+    """
+    lost = _Candidate("pypdfium2", "Distribuite su circa robot e macchine presso 1000 clienti.", 1)
+    kept = _Candidate(
+        "pdfplumber", "Distribuite su circa 239 robot e macchine presso 1000 clienti.", 1
+    )
+
+    assert _pick_best([lost, kept]).method == "pdfplumber"
+    assert _pick_best([kept, lost]).method == "pdfplumber", "l'ordine non deve contare"
+
+
+def test_pick_best_rejects_a_candidate_whose_prose_collapsed() -> None:
+    """Recuperare una cifra non vale un testo illeggibile."""
+    prose = _Candidate("pypdfium2", "\n".join(["Progettato un servizio di fatturazione."] * 12), 1)
+    garbage = _Candidate("pdfplumber", "\n".join(["1", "2", "3", "9", "8", "42", "239"] * 5), 1)
+
+    assert _pick_best([prose, garbage]).method == "pypdfium2"
+
+
+def test_pick_best_with_a_single_candidate() -> None:
+    """Se pdfplumber fallisce si tiene comunque il risultato disponibile."""
+    only = _Candidate("pypdfium2", "Un testo qualsiasi abbastanza lungo.", 1)
+    assert _pick_best([only]) is only
+
+
+def test_numeric_tokens_catches_percentages_and_thousands() -> None:
+    tokens = _numeric_tokens("Ridotto dell'80% su 1.190 cicli nel 2024, da 6 a 2 ore.")
+    assert {"80%", "1.190", "2024", "6", "2"} <= tokens
+
+
 # --- utilita' interne --------------------------------------------------------
 
 
@@ -95,3 +141,39 @@ def test_quality_penalises_fragmented_text() -> None:
 
     assert _quality(good) > _quality(fragmented)
     assert _quality("") == 0.0
+
+
+def test_pick_best_rejects_extraction_that_lost_word_boundaries() -> None:
+    """Regressione sul caso reale piu' grave.
+
+    Su questo CV pdfplumber recuperava una cifra in piu' ma restituiva
+    'macchinedatagliolaser' invece di 'macchine da taglio laser': 50 parole su
+    187 sopra i 20 caratteri. Un testo cosi' e' inutilizzabile, e nessuna
+    euristica basata sulla forma se ne accorge — righe lunghe, tante lettere,
+    nessun frammento corto. Vince la leggibilita', anche perdendo una cifra.
+    """
+    fused = _Candidate(
+        "pdfplumber",
+        "macchinedatagliolaser,distribuitesucirca239robotemacchinepressooltre1000clienti.",
+        1,
+    )
+    readable = _Candidate(
+        "pypdfium2",
+        "macchine da taglio laser, distribuite su circa robot e macchine presso 1000 clienti.",
+        1,
+    )
+
+    assert _pick_best([fused, readable]).method == "pypdfium2"
+    assert _pick_best([readable, fused]).method == "pypdfium2"
+
+
+def test_word_integrity_detects_fused_words() -> None:
+    assert _word_integrity("macchine da taglio laser distribuite su robot") == 1.0
+    assert _word_integrity("macchinedatagliolaserdistribuitesurobot") == 0.0
+    assert _word_integrity("") == 0.0
+
+
+def test_word_integrity_tolerates_the_odd_long_word() -> None:
+    """Una parola lunga legittima non deve far scartare un'estrazione buona."""
+    text = " ".join(["parola"] * 30 + ["internazionalizzazione"])
+    assert _word_integrity(text) > _MIN_WORD_INTEGRITY

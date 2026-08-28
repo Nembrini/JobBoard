@@ -89,6 +89,24 @@ class LLMProvider(ABC):
         validazione qui, invece di un ``KeyError`` tre livelli piu' in la'.
         """
 
+    @abstractmethod
+    def generate_json(
+        self,
+        prompt: str,
+        schema: type[BaseModel],
+        *,
+        system: str | None = None,
+        model: str | None = None,
+        temperature: float = 0.0,
+    ) -> LLMResult[dict[str, Any]]:
+        """JSON grezzo, guidato dallo schema ma **non** validato.
+
+        Serve quando l'output va corretto prima di poter passare la validazione:
+        e' il caso della strutturazione del CV, dove gli id delle voci vengono
+        assegnati in modo deterministico dal codice invece di essere lasciati al
+        modello, che li produrrebbe incoerenti o duplicati.
+        """
+
 
 #: Ritenta solo gli errori transitori, con attesa crescente. Cinque tentativi
 #: distribuiti su ~30 secondi: sufficiente per un picco di carico, non tanto da
@@ -153,6 +171,31 @@ class GeminiProvider(LLMProvider):
             raise LLMError(f"{used} non ha prodotto output strutturato")
         return LLMResult(schema.model_validate_json(raw), self._usage(response, used))
 
+    @_retry
+    def generate_json(
+        self,
+        prompt: str,
+        schema: type[BaseModel],
+        *,
+        system: str | None = None,
+        model: str | None = None,
+        temperature: float = 0.0,
+    ) -> LLMResult[dict[str, Any]]:
+        import json
+
+        used = model or self.settings.model_scoring
+        response = self._call(prompt, used, system, temperature, schema=schema)
+        raw = (response.text or "").strip()
+        if not raw:
+            raise LLMError(f"{used} non ha prodotto output strutturato")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise LLMError(f"{used} ha prodotto JSON non valido: {exc}") from exc
+        if not isinstance(data, dict):
+            raise LLMError(f"{used} ha prodotto {type(data).__name__} invece di un oggetto")
+        return LLMResult(data, self._usage(response, used))
+
     # -- dettagli ------------------------------------------------------------
 
     def _call(
@@ -170,7 +213,7 @@ class GeminiProvider(LLMProvider):
             config["system_instruction"] = system
         if schema is not None:
             config["response_mime_type"] = "application/json"
-            config["response_schema"] = schema
+            config["response_schema"] = _to_gemini_schema(schema)
 
         try:
             return self._client.models.generate_content(
@@ -192,6 +235,92 @@ class GeminiProvider(LLMProvider):
             input_tokens=getattr(u, "prompt_token_count", 0) or 0,
             output_tokens=getattr(u, "candidates_token_count", 0) or 0,
         )
+
+
+#: Parole chiave che l'API Gemini accetta in ``response_schema``. Tutto il resto
+#: — a partire da ``additionalProperties``, che Pydantic emette per via di
+#: ``extra="forbid"`` — fa fallire la richiesta con 400 INVALID_ARGUMENT.
+_GEMINI_SCHEMA_KEYS = frozenset(
+    {
+        "type",
+        "format",
+        "description",
+        "nullable",
+        "enum",
+        "items",
+        "properties",
+        "required",
+        "anyOf",
+        "minItems",
+        "maxItems",
+    }
+)
+
+
+def _to_gemini_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """Traduce lo schema JSON di un modello Pydantic in quello che Gemini accetta.
+
+    Serve perche' i due dialetti non coincidono: Pydantic produce JSON Schema
+    completo, Gemini ne accetta un sottoinsieme. In particolare:
+
+    * ``additionalProperties`` non esiste lato Gemini e fa fallire la richiesta;
+    * i ``$ref`` verso ``$defs`` vanno inlineati, perche' i riferimenti non sono
+      supportati;
+    * ``anyOf: [T, null]``, che Pydantic genera per ogni campo opzionale,
+      diventa il tipo ``T`` con ``nullable``.
+
+    I modelli restano quindi liberi di essere severi per la *nostra*
+    validazione, senza che questo vincoli il formato della richiesta.
+    """
+    root = model.model_json_schema()
+    defs: dict[str, Any] = root.pop("$defs", {})
+    converted = _convert(root, defs, seen=())
+    if not isinstance(converted, dict):  # pragma: no cover - lo schema radice e' sempre un oggetto
+        raise LLMError(f"schema di {model.__name__} non convertibile")
+    return converted
+
+
+def _convert(node: Any, defs: dict[str, Any], seen: tuple[str, ...]) -> Any:
+    if isinstance(node, list):
+        return [_convert(item, defs, seen) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    if ref := node.get("$ref"):
+        name = str(ref).rsplit("/", 1)[-1]
+        if name in seen:
+            # Schema ricorsivo: Gemini non puo' esprimerlo, si degrada a oggetto
+            # libero invece di ricorrere all'infinito.
+            return {"type": "object"}
+        return _convert(defs.get(name, {}), defs, (*seen, name))
+
+    # anyOf: [T, null]  ->  T nullable
+    if any_of := node.get("anyOf"):
+        non_null = [b for b in any_of if b.get("type") != "null"]
+        if len(non_null) == 1 and len(non_null) < len(any_of):
+            converted = _convert(non_null[0], defs, seen)
+            if isinstance(converted, dict):
+                converted["nullable"] = True
+                if desc := node.get("description"):
+                    converted.setdefault("description", desc)
+            return converted
+
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key not in _GEMINI_SCHEMA_KEYS:
+            continue
+        if key == "properties":
+            # Le chiavi qui sono NOMI DI CAMPO, non parole chiave dello schema:
+            # filtrarle contro _GEMINI_SCHEMA_KEYS svuoterebbe l'oggetto.
+            out[key] = {name: _convert(sub, defs, seen) for name, sub in value.items()}
+        elif key == "required":
+            out[key] = list(value)
+        else:
+            out[key] = _convert(value, defs, seen)
+
+    if desc := node.get("description"):
+        out.setdefault("description", desc)
+    return out
 
 
 def get_provider(settings: Settings | None = None) -> LLMProvider:
