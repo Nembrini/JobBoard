@@ -26,6 +26,9 @@ dependencies = [
     "apscheduler>=3.11,<4",
 
     # --- AI ---
+    # Provider di default: free tier, nessun costo. Il layer e' agnostico
+    # (jobboard.ai.client), anthropic resta disponibile come alternativa.
+    "google-genai>=1.0",
     "anthropic>=0.42",
     "fastembed>=0.5",
     "numpy>=2.1",
@@ -72,6 +75,9 @@ packages = ["jobboard"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Le migration sono generate da Alembic e sono un registro storico: riformattarle
+# creerebbe solo rumore nei diff, e i loro `typing.Union` vengono dal template.
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

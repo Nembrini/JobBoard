@@ -12,7 +12,7 @@ la candidatura.
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
-![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)
+![Gemini](https://img.shields.io/badge/AI-Gemini%20free%20tier-4285F4?logo=google&logoColor=white)
 ![Type-checked](https://img.shields.io/badge/mypy-strict-2A6DB2)
 
 </div>
@@ -58,7 +58,7 @@ Ogni stadio scarta il più possibile con il metodo più economico disponibile:
 |---|---|---|---|
 | 0 · Hard filter | SQL: lingua, work authorization, seniority, location | zero | ~150 su 500 |
 | 1 · Semantico | Embedding multilingua in locale + BM25 sulle keyword | zero | 40 |
-| 2 · Rubrica | Claude Haiku via Batch API, 6 criteri pesati | ~centesimi | punteggio finale |
+| 2 · Rubrica | Gemini 2.5 Flash-Lite, 6 criteri pesati | free tier | punteggio finale |
 
 ## Architettura
 
@@ -68,7 +68,7 @@ Split: l'interfaccia sta in cloud ed è sempre raggiungibile, il lavoro pesante 
 flowchart TD
     V["<b>VERCEL</b> · pubblico, sempre online<br/>Next.js 16 · Auth.js/Google · TanStack Table<br/><i>legge i match, accoda i task</i>"]
     S["<b>SUPABASE</b> · region EU<br/>Postgres · Storage privato dei PDF"]
-    W["<b>WORKER</b> · PC di casa, Python 3.12<br/>ingest · embedding · scoring<br/>generazione CV · candidature<br/><i>Playwright · fastembed · Claude API</i>"]
+    W["<b>WORKER</b> · PC di casa, Python 3.12<br/>ingest · embedding · scoring<br/>generazione CV · candidature<br/><i>Playwright · fastembed · Gemini API</i>"]
 
     V <-->|TLS| S
     W <-->|TLS| S
@@ -104,14 +104,14 @@ compila un form non può girare su un server.
 | **Worker** | Python 3.12, SQLAlchemy 2, Alembic, APScheduler | Ecosistema maturo per parsing CV, embedding e automazione browser |
 | **Database** | Supabase Postgres, region EU | Un solo servizio per DB *e* storage dei PDF, con signed URL nativi |
 | **Embedding** | fastembed + `multilingual-e5-small`, su CPU | Gratis, multilingua IT/EN/DE, gira senza GPU |
-| **LLM** | Claude Haiku 4.5 (scoring) · Claude Opus 5 (CV) | Il modello caro solo dove conta: il documento che ti rappresenta |
+| **LLM** | Gemini 2.5 Flash-Lite (scoring) · Flash (CV) | Free tier: l'imbuto tiene il volume LLM cosi' basso da starci dentro |
 | **PDF & apply** | Playwright Chromium | Una dipendenza sola per rendering PDF *e* automazione dei form |
 
 ## Stato
 
 | Fase | | Contenuto |
 |---|---|---|
-| 0 · Fondamenta | ✅ | venv, 13 tabelle, Alembic, Next.js, shadcn, Playwright, CI locale |
+| 0 · Fondamenta | ✅ | venv, 13 tabelle su Supabase, Alembic, Next.js, shadcn, Playwright |
 | 1 · Profilo e CV master | ⬜ | Parsing PDF/DOCX, `MasterProfile`, revisione in UI |
 | 2 · Ingestione | ⬜ | Adzuna, Jooble, Arbeitnow, Remotive, Greenhouse/Lever/Ashby, JSearch |
 | 3 · Matching | ⬜ | Imbuto a 3 stadi, calibrazione dei pesi |
@@ -164,7 +164,7 @@ database reale, mai da una seconda definizione.
 ```bash
 # 1. modifica worker/jobboard/models/
 cd worker && alembic revision --autogenerate -m "descrizione" && alembic upgrade head
-cd ../web && npx drizzle-kit pull
+jobboard gen-web-schema        # rigenera i tipi TypeScript
 ```
 
 </details>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from enum import StrEnum
 from typing import Any
 
@@ -25,8 +26,17 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
+def _constraint_name(enum_cls: type[StrEnum]) -> str:
+    """``TaskStatus`` -> ``task_status``. Alimenta ``%(constraint_name)s``."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", enum_cls.__name__).lower()
+
+
 def enum_column(enum_cls: type[StrEnum], **kwargs: Any) -> Mapped[Any]:
     """Colonna per un :class:`StrEnum`, persistita come VARCHAR + CHECK.
+
+    ``create_constraint`` va passato esplicitamente: da SQLAlchemy 1.4 il default
+    e' ``False``, quindi senza questa riga la colonna sarebbe un VARCHAR libero e
+    un valore fuori dall'enum verrebbe scritto senza che nessuno se ne accorga.
 
     Vedi la nota in ``enums.py`` sul perche' non si usano gli ENUM nativi.
     """
@@ -34,6 +44,8 @@ def enum_column(enum_cls: type[StrEnum], **kwargs: Any) -> Mapped[Any]:
         SAEnum(
             enum_cls,
             native_enum=False,
+            create_constraint=True,
+            name=_constraint_name(enum_cls),
             values_callable=lambda e: [m.value for m in e],
             length=32,
         ),

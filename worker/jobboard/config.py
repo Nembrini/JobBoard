@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,12 +45,33 @@ class Settings(BaseSettings):
     supabase_storage_bucket: str = "resumes"
 
     # --- AI -------------------------------------------------------------------
+    #: Provider degli stadi LLM. Gli embedding sono sempre locali e gratuiti,
+    #: quindi questo influenza solo l'estrazione requisiti, lo scoring e il CV.
+    llm_provider: Literal["gemini", "anthropic", "ollama"] = "gemini"
+
+    #: Free tier di Google AI Studio: nessuna carta di credito richiesta.
+    gemini_api_key: SecretStr = SecretStr("")
+    #: Alternativa a consumo, non necessaria con il provider gemini.
     anthropic_api_key: SecretStr = SecretStr("")
-    #: Alto volume, basso costo: estrazione requisiti e scoring della rubrica.
-    model_scoring: str = "claude-haiku-4-5-20251001"
-    #: Basso volume, qualita' massima: riscrittura del CV.
-    model_cv: str = "claude-opus-5"
+    ollama_base_url: str = "http://localhost:11434"
+
+    #: Alto volume (~40 annunci al giorno): estrazione requisiti e rubrica.
+    model_scoring: str = "gemini-2.5-flash-lite"
+    #: Basso volume (pochi al giorno) ma e' il documento che ti rappresenta,
+    #: quindi qui si sceglie il modello migliore che il free tier consente.
+    model_cv: str = "gemini-2.5-flash"
+
+    #: Sempre in locale su CPU, via fastembed. Nessuna chiamata di rete.
     embedding_model: str = "intfloat/multilingual-e5-small"
+
+    @property
+    def llm_api_key(self) -> SecretStr:
+        """Chiave del provider attivo, per non disseminare if in giro."""
+        return {
+            "gemini": self.gemini_api_key,
+            "anthropic": self.anthropic_api_key,
+            "ollama": SecretStr("not-needed"),
+        }[self.llm_provider]
 
     # --- fonti ----------------------------------------------------------------
     adzuna_app_id: str = ""

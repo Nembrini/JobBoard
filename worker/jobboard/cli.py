@@ -59,7 +59,12 @@ def doctor(
         settings.database_url.split("@")[-1] if "@" in settings.database_url else "(default locale)"
     )
     row("DATABASE_URL", "localhost" not in settings.database_url, db_host)
-    row("ANTHROPIC_API_KEY", bool(settings.anthropic_api_key.get_secret_value()))
+    # Si controlla solo la chiave del provider attivo: le altre sono irrilevanti.
+    row(
+        f"{settings.llm_provider.upper()}_API_KEY",
+        bool(settings.llm_api_key.get_secret_value()),
+        f"provider attivo: {settings.llm_provider}",
+    )
     row("SUPABASE_URL", bool(settings.supabase_url), settings.supabase_url)
     row("SUPABASE_SERVICE_ROLE_KEY", bool(settings.supabase_service_role_key.get_secret_value()))
     row("ADZUNA_APP_ID", bool(settings.adzuna_app_id))
@@ -79,6 +84,9 @@ def doctor(
         if settings.dry_run
         else "[red]false — le candidature partono per davvero[/]",
     )
+    behaviour.add_row("LLM_PROVIDER", settings.llm_provider)
+    behaviour.add_row("MODEL_SCORING", settings.model_scoring)
+    behaviour.add_row("MODEL_CV", settings.model_cv)
     behaviour.add_row("DAILY_APPLICATION_CAP", str(settings.daily_application_cap))
     behaviour.add_row("MATCH_THRESHOLD", str(settings.match_threshold))
     behaviour.add_row("DAILY_RUN_HOUR", f"{settings.daily_run_hour:02d}:00")
@@ -118,6 +126,22 @@ def _check_playwright() -> None:
             f"[red]Playwright non pronto[/] — {type(exc).__name__}. "
             "Esegui: [bold]python -m playwright install chromium[/]"
         )
+
+
+@app.command(name="gen-web-schema")
+def gen_web_schema() -> None:
+    """Rigenera ``web/src/db/schema.ts`` dai modelli SQLAlchemy.
+
+    Da eseguire dopo ogni ``alembic upgrade head``. Sostituisce
+    ``drizzle-kit pull``, che su questo database va in crash sui vincoli NOT NULL
+    che Postgres espone come pseudo-CHECK.
+    """
+    from .gen_web_schema import table_count, write
+
+    target = write()
+    console.print(
+        f"[green]Scritte {table_count()} tabelle[/] in {target.relative_to(target.parents[3])}"
+    )
 
 
 @app.command()

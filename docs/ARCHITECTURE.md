@@ -67,7 +67,7 @@ Da qui l'architettura **split**: interfaccia in cloud, lavoro pesante in locale.
    |  WORKER — PC Windows di casa (Python 3.12)                            |
    |  APScheduler: pipeline giornaliera                                    |
    |  Consumer della coda: genera CV, invia candidature                    |
-   |  Playwright Chromium · fastembed ONNX · Claude API · SMTP/IMAP        |
+   |  Playwright Chromium · fastembed ONNX · Gemini API · SMTP/IMAP        |
    +-----------------------------------------------------------------------+
 ```
 
@@ -157,20 +157,41 @@ I vettori stanno come `bytea` in Postgres e vengono caricati in un array numpy d
 worker: sotto i 10.000 annunci il cosine brute-force è istantaneo. Nessuna estensione
 vettoriale da installare e mantenere.
 
-### Claude API: due modelli per due lavori diversi
+### LLM: provider intercambiabile, Gemini free tier di default
+
+L'imbuto è progettato perché il costo LLM sia trascurabile: gli stadi 0 e 1 — quelli
+che scartano 460 annunci su 500 — girano **interamente in locale e a costo zero**. Solo
+i ~40 annunci superstiti, più i pochi CV generati su richiesta, arrivano a un modello.
+
+Quel volume entra nel **free tier di Google AI Studio**, che è il default:
 
 | Modello | Uso | Perché |
 |---|---|---|
-| `claude-haiku-4-5-20251001` | estrazione requisiti dalla JD, scoring rubrica | alto volume, basso costo; gira di notte via **Message Batches API** con il 50% di sconto |
-| `claude-opus-5` | riscrittura del CV | basso volume, qualità massima: è il documento che ti rappresenta |
+| `gemini-2.5-flash-lite` | estrazione requisiti dalla JD, rubrica di scoring | alto volume, il modello più economico che regge un'estrazione strutturata |
+| `gemini-2.5-flash` | riscrittura del CV | basso volume: qui si usa il modello migliore che il free tier consente |
 
-**Prompt caching** sul `MasterProfile`, che è identico in tutte le chiamate di tailoring.
+`LLM_PROVIDER` accetta anche `anthropic` e `ollama`. Il layer in `jobboard/ai/client.py`
+espone una sola interfaccia, quindi cambiare fornitore è una variabile in `.env` e non
+una riscrittura — utile se un giorno la qualità sul tailoring del CV dovesse contare più
+del costo.
+
+> **Nota sull'abbonamento Claude.** Claude Pro copre claude.ai e Claude Code, **non**
+> l'API: sono prodotti a fatturazione separata e non esiste un modo legittimo di usare
+> l'abbonamento da uno script. Per questo il default è un free tier vero.
 
 ### Alembic è l'unica fonte di verità dello schema
 
 I modelli SQLAlchemy nel worker definiscono lo schema; Alembic genera e applica le
-migration. Il lato Next.js usa **Drizzle in sola introspezione** (`drizzle-kit pull`)
-per generare i tipi TypeScript dal database reale.
+migration. Il lato Next.js riceve i tipi TypeScript da un generatore
+(`jobboard gen-web-schema`) che legge `Base.metadata` ed emette
+`web/src/db/schema.ts`.
+
+> Inizialmente si usava `drizzle-kit pull`, ma va in crash su questo database:
+> Postgres espone i vincoli `NOT NULL` come pseudo-CHECK in
+> `information_schema.check_constraints` — 101 righe su 104 — e drizzle-kit 0.31.10
+> non li gestisce. Generare dai modelli mantiene la stessa garanzia di fonte unica
+> e in piu' produce i **tipi union degli enum**, che l'introspezione non potrebbe
+> dedurre: nel database quelle colonne sono semplici VARCHAR.
 
 Risultato: un solo posto dove si cambia una colonna, e nessuna possibilità di drift fra
 i due linguaggi.
@@ -330,7 +351,7 @@ Job Board/
     pyproject.toml
   web/                       Next.js 16 -> Vercel
     app/(auth)/, app/(dash)/, app/api/
-    db/schema.ts             generato da drizzle-kit pull
+    db/schema.ts             generato da: jobboard gen-web-schema
     components/
   docs/                      questo documento + ROADMAP.md
   scripts/                   calibrate.py e utility one-off

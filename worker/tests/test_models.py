@@ -8,6 +8,8 @@ sistema fa affidamento siano davvero espresse nello schema.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import CheckConstraint
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
@@ -101,3 +103,23 @@ def test_seniority_ranks_are_ordered() -> None:
 def test_tier_a_ats_are_known_types() -> None:
     assert set(AtsType) >= TIER_A_ATS
     assert AtsType.WORKDAY not in TIER_A_ATS, "Workday non ha un endpoint di apply pubblico"
+
+
+def test_every_enum_column_has_a_check_constraint() -> None:
+    """Ogni colonna enum deve essere validata dal database.
+
+    Regressione reale: ``Enum(create_constraint=...)`` vale ``False`` di default da
+    SQLAlchemy 1.4. Senza passarlo esplicitamente le colonne enum finiscono come
+    VARCHAR liberi e un valore fuori elenco viene scritto senza che nessuno se ne
+    accorga — un ``'Pending'`` al posto di ``'pending'`` renderebbe un task
+    invisibile al consumer per sempre.
+    """
+    missing = []
+    for table in Base.metadata.sorted_tables:
+        checks = {c.name for c in table.constraints if isinstance(c, CheckConstraint)}
+        for col in table.columns:
+            if isinstance(col.type, SAEnum):
+                expected = f"ck_{table.name}_{col.type.name}"
+                if expected not in checks:
+                    missing.append(f"{table.name}.{col.name} (atteso {expected})")
+    assert not missing, "colonne enum senza vincolo CHECK: " + ", ".join(missing)

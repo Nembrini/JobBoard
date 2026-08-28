@@ -39,9 +39,9 @@ Variables del progetto Vercel. Il template è in `.env.example`.
 ## Fase 0 — Fondamenta e infrastruttura · 1 gg
 
 - [x] **0.1** Python 3.12, `worker/.venv`, `git init`, struttura cartelle
-- [ ] **0.2** Progetto Supabase region EU: Postgres + bucket privato `resumes`; connection string diretta per il worker e pooler Supavisor per Vercel
-- [~] **0.3** SQLAlchemy + Alembic nel worker, prima migration applicata su Supabase — *modelli e configurazione Alembic fatti; la migration attende la connection string*
-- [~] **0.4** `create-next-app` in `web/`, Tailwind + shadcn/ui, `drizzle-kit pull` per generare i tipi TypeScript — *scaffolding fatto; il pull attende il database*
+- [x] **0.2** Progetto Supabase region EU: Postgres + bucket privato `resumes`; **session pooler** per il worker (porta 5432) e transaction pooler per Vercel (6543)
+- [x] **0.3** SQLAlchemy + Alembic nel worker, migration applicate su Supabase: 13 tabelle, 14 indici, 16 vincoli CHECK
+- [x] **0.4** `create-next-app` in `web/`, Tailwind + shadcn/ui, tipi TypeScript generati da `jobboard gen-web-schema` *(non da `drizzle-kit pull`: va in crash sui pseudo-CHECK dei NOT NULL)*
 - [ ] **0.5** Progetto Vercel collegato al repo, environment variables, primo deploy di una pagina vuota
 - [x] **0.6** `.env.example`, `.gitignore`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`
 - [x] **0.7** `playwright install chromium` sul worker (~150 MB, una volta sola)
