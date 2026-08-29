@@ -161,3 +161,33 @@ def test_una_data_incomprensibile_resta_vuota(testo: str) -> None:
 def test_un_annuncio_senza_id_o_titolo_viene_scartato() -> None:
     assert _to_raw_job({**ANNUNCIO, "job_id": None}, "it") is None
     assert _to_raw_job({**ANNUNCIO, "job_title": ""}, "it") is None
+
+
+def test_usa_job_uid_non_job_id() -> None:
+    """Nella v5 ``job_id`` non entra nella colonna e non e' nemmeno stabile.
+
+    E' `base64(job_uid) + ":" + contesto della richiesta`, 402 caratteri contro i
+    300 di ``job_source_link.external_id``. Una run intera e' caduta cosi', e in
+    rollback si e' portata via anche il lavoro delle fonti che avevano funzionato.
+    Anche entrandoci sarebbe stato sbagliato: la parte dopo i due punti dipende
+    dalla ricerca, quindi lo stesso annuncio risulterebbe nuovo ogni giorno.
+    """
+    entry = {**ANNUNCIO, "job_uid": "gW3HA123g612OOQLAAAAAA==", "job_id": "Z" * 402}
+    job = _to_raw_job(entry, "it")
+    assert job is not None
+    assert job.external_id == "gW3HA123g612OOQLAAAAAA=="
+
+
+def test_un_id_troppo_lungo_diventa_il_suo_hash() -> None:
+    """La rete di sicurezza vale per ogni fonte, non solo per JSearch.
+
+    Tagliare l'id lo farebbe collidere in silenzio con un altro annuncio che
+    condivide il prefisso; l'hash e' stabile fra due run e non collide.
+    """
+    lungo = {**ANNUNCIO, "job_uid": None, "job_id": "Z" * 402}
+    job = _to_raw_job(lungo, "it")
+    assert job is not None
+    assert job.external_id.startswith("sha256:")
+    assert len(job.external_id) <= 300
+    # stabile: lo stesso id di partenza da' sempre lo stesso hash
+    assert _to_raw_job(lungo, "it").external_id == job.external_id

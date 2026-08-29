@@ -13,6 +13,7 @@ nove occasioni di farli.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
 import re
 import time
@@ -29,6 +30,11 @@ from ..config import Settings
 from ..models.enums import AtsType, SalaryPeriod
 
 log = logging.getLogger(__name__)
+
+#: Lunghezza della colonna ``job_source_link.external_id``. Tenuta qui perche' e'
+#: il punto in cui si puo' ancora rimediare: oltre, l'errore arriva da Postgres a
+#: meta' scrittura e si porta via l'intera transazione.
+_MAX_EXTERNAL_ID = 300
 
 
 class SourceError(RuntimeError):
@@ -96,6 +102,32 @@ class RawJob(BaseModel):
     #: Payload originale, salvato in ``job_source_link.raw``: permette di
     #: riprocessare senza rifare la chiamata, che con JSearch pesa sul budget.
     raw: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("external_id")
+    @classmethod
+    def _entra_nella_colonna(cls, v: str) -> str:
+        """Un id piu' lungo della colonna diventa il suo hash, non il suo prefisso.
+
+        La colonna e' ``VARCHAR(300)``, e un id piu' lungo fa **cadere l'intera
+        run**: Postgres rifiuta l'INSERT, la transazione va in rollback e si perde
+        anche il lavoro delle fonti che avevano funzionato. E' successo davvero,
+        quando JSearch e' passato alla v5 e il suo ``job_id`` e' diventato un
+        blob da 402 caratteri.
+
+        Si potrebbe tagliare, ma tagliare degli id li fa collidere in silenzio:
+        due annunci diversi con lo stesso prefisso diventerebbero lo stesso
+        annuncio. Un hash e' invece stabile fra due run — che e' l'unico
+        requisito vero di questo campo — e non collide.
+        """
+        if len(v) <= _MAX_EXTERNAL_ID:
+            return v
+        digest = hashlib.sha256(v.encode("utf-8")).hexdigest()
+        log.warning(
+            "external_id di %d caratteri sostituito dal suo hash: la fonte ha "
+            "cambiato formato degli identificativi?",
+            len(v),
+        )
+        return f"sha256:{digest}"
 
     @field_validator("posted_at")
     @classmethod

@@ -203,7 +203,12 @@ def _date_filter(days: int) -> str:
 
 
 def _to_raw_job(entry: dict[str, Any], country: str) -> RawJob | None:
-    job_id = entry.get("job_id")
+    # `job_uid`, non `job_id`. Nella v5 il secondo e' un blob da ~400 caratteri
+    # fatto di `base64(job_uid) + ":" + contesto della richiesta`: non entra nella
+    # colonna e, essendo legato alla ricerca che lo ha prodotto, non e' nemmeno
+    # stabile fra due run — lo stesso annuncio risulterebbe nuovo ogni giorno.
+    # `job_uid` e' corto, distinto e ha lo stesso formato che aveva `job_id` nella v1.
+    job_id = entry.get("job_uid") or entry.get("job_id")
     title = entry.get("job_title")
     if not (job_id and title):
         return None
