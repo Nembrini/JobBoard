@@ -580,8 +580,9 @@ candidature a nome di Filippo. Requisiti minimi:
   la connessione va **in chiaro**, ed è stato verificato che accadeva davvero. Con la
   sola `rejectUnauthorized` fallisce, perché la catena si chiude su una CA privata di
   Supabase assente dal trust store di sistema. Il certificato radice sta in
-  `web/src/db/supabase-ca.ts`, con l'impronta annotata per poterla confrontare con
-  quella pubblicata nella dashboard Supabase.
+  `web/src/db/supabase-ca.ts`, ed è stato **confrontato byte per byte** con il
+  `prod-ca-2021.crt` scaricato dalla dashboard Supabase (Database Settings → SSL
+  Configuration): impronta SHA-256 `80:70:25:AD:…:CA:FA`, valido fino al 26 aprile 2031.
 - **`noindex, nofollow` su tutta l'applicazione**, login compreso.
 - **Bucket PDF privato**, servito esclusivamente con signed URL a scadenza breve. Mai
   URL pubblici, neanche con la scusa che tanto non sono indicizzati.

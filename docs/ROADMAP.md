@@ -183,7 +183,7 @@ reindirizzano al login, le API rispondono `401 {"error":"non autorizzato"}`.
 > string di Supabase non contiene `sslmode`. Il CV, i dati personali e ogni query
 > attraversavano internet senza cifratura. Con la sola `rejectUnauthorized` la
 > connessione invece fallisce, perché la catena si chiude su una CA privata di Supabase:
-> il certificato radice è ora fissato in `src/db/supabase-ca.ts`.
+> il certificato radice è ora fissato in `src/db/supabase-ca.ts`, verificato byte per byte contro quello scaricato dalla dashboard Supabase.
 
 ---
 

@@ -14,11 +14,20 @@
  * È un certificato pubblico, non un segreto: sta nel repository per finire nel
  * bundle serverless senza dipendere dal filesystem, che su Vercel non c'è.
  *
- * Impronta SHA-256, da confrontare con quella del certificato scaricabile dalla
- * dashboard Supabase (Settings → Database → SSL Configuration):
+ * Impronta SHA-256:
  *
  *     80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F
  *     82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA
+ *
+ * **Verificata** contro `prod-ca-2021.crt` scaricato dalla dashboard Supabase
+ * (Database Settings → SSL Configuration): i due certificati coincidono byte
+ * per byte, non solo nell'impronta.
+ *
+ * Per ricontrollarlo dopo una rotazione, da PowerShell e senza openssl:
+ *
+ *     $c = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+ *         "$env:USERPROFILE\Downloads\prod-ca-2021.crt")
+ *     $c.GetCertHashString('SHA256')
  *
  * Valido fino al 26 aprile 2031.
  */
