@@ -110,21 +110,26 @@ class JSearchAdapter(SourceAdapter):
 
 
 def _explain(exc: SourceError) -> SourceError:
-    """Traduce i due errori di RapidAPI che si somigliano e si curano diversamente.
+    """Traduce gli errori di RapidAPI, senza affermare piu' di quel che si sa.
 
-    Su RapidAPI la chiave dell'account e l'abbonamento alla singola API sono due
-    cose separate: si puo' avere una chiave perfettamente valida e ricevere lo
-    stesso 403, perche' a quella API non si e' iscritti. Il messaggio grezzo
-    ("You are not subscribed to this API") manda a controllare la chiave, che e'
-    esattamente il posto dove non c'e' niente da sistemare.
+    **Il 403 "not subscribed" non dice che la chiave e' valida.** Verificato: una
+    chiave inventata di sana pianta riceve esattamente la stessa risposta, e il
+    401 arriva solo quando l'header manca del tutto. Il messaggio quindi elenca
+    le due cause possibili invece di sceglierne una — una versione precedente
+    dichiarava valida la chiave e ha mandato a cercare il problema
+    nell'abbonamento, mentre in ``.env`` non c'era nessuna chiave.
     """
     testo = str(exc)
     if "not subscribed" in testo.lower():
         return SourceError(
-            "JSearch: la chiave e' valida ma l'account RapidAPI non e' iscritto a "
-            "questa API. Aprire rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch e "
-            "sottoscrivere il piano Basic (gratuito, ~200 chiamate al mese); "
-            "l'iscrizione e' per singola API, non per account."
+            "JSearch: 403 'not subscribed'. Due cause danno la stessa risposta. "
+            "1) RAPIDAPI_KEY assente o malformata: eseguire 'jobboard doctor', che "
+            "riconosce anche il caso in cui la riga di .env contiene il commento al "
+            "posto del valore. 2) La chiave e' buona ma quell'applicazione RapidAPI "
+            "non e' iscritta a JSearch: aprire "
+            "rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch e premere 'Start Free "
+            "Plan' sul piano Basic. L'iscrizione vale per singola API e per singola "
+            "applicazione, non per account."
         )
     if "429" in testo:
         return SourceError(

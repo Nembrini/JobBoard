@@ -89,28 +89,33 @@ def doctor(
     table.add_column("Stato")
     table.add_column("Dettaglio", overflow="fold")
 
-    def row(name: str, ok: bool, detail: str = "") -> None:
-        table.add_row(name, "[green]OK[/]" if ok else "[red]MANCANTE[/]", detail)
+    def row(name: str, valore: str, detail: str = "") -> None:
+        stato, nota = _stato_segreto(valore)
+        table.add_row(name, stato, "; ".join(x for x in (nota, detail) if x))
 
     # Segreti: si riporta solo se sono valorizzati, mai il valore. Della connection
     # string si mostra solo la parte dopo la '@', che non contiene la password.
     db_host = (
         settings.database_url.split("@")[-1] if "@" in settings.database_url else "(default locale)"
     )
-    row("DATABASE_URL", "localhost" not in settings.database_url, db_host)
+    row(
+        "DATABASE_URL",
+        "" if "localhost" in settings.database_url else settings.database_url,
+        db_host,
+    )
     # Si controlla solo la chiave del provider attivo: le altre sono irrilevanti.
     row(
         f"{settings.llm_provider.upper()}_API_KEY",
-        bool(settings.llm_api_key.get_secret_value()),
+        settings.llm_api_key.get_secret_value(),
         f"provider attivo: {settings.llm_provider}",
     )
-    row("SUPABASE_URL", bool(settings.supabase_url), settings.supabase_url)
-    row("SUPABASE_SERVICE_ROLE_KEY", bool(settings.supabase_service_role_key.get_secret_value()))
-    row("ADZUNA_APP_ID", bool(settings.adzuna_app_id))
-    row("ADZUNA_APP_KEY", bool(settings.adzuna_app_key.get_secret_value()))
-    row("JOOBLE_API_KEY", bool(settings.jooble_api_key.get_secret_value()))
-    row("RAPIDAPI_KEY", bool(settings.rapidapi_key.get_secret_value()), "per JSearch")
-    row("GMAIL_APP_PASSWORD", bool(settings.gmail_app_password.get_secret_value()), "dalla Fase 8")
+    row("SUPABASE_URL", settings.supabase_url, settings.supabase_url)
+    row("SUPABASE_SERVICE_ROLE_KEY", settings.supabase_service_role_key.get_secret_value())
+    row("ADZUNA_APP_ID", settings.adzuna_app_id)
+    row("ADZUNA_APP_KEY", settings.adzuna_app_key.get_secret_value())
+    row("JOOBLE_API_KEY", settings.jooble_api_key.get_secret_value())
+    row("RAPIDAPI_KEY", settings.rapidapi_key.get_secret_value(), "per JSearch")
+    row("GMAIL_APP_PASSWORD", settings.gmail_app_password.get_secret_value(), "dalla Fase 8")
 
     console.print(table)
 
@@ -138,6 +143,32 @@ def doctor(
 
     _check_embedding()
     _check_playwright()
+
+
+def _stato_segreto(valore: str) -> tuple[str, str]:
+    """Giudica un valore di configurazione dalla sua *forma*, non dalla presenza.
+
+    Un `bool(valore)` non basta, e per due volte non e' bastato. Il tranello sta
+    nel formato di ``.env``: python-dotenv riconosce un commento in coda solo
+    quando davanti c'e' un valore. Scrivere
+
+        RAPIDAPI_KEY=            # per JSearch
+
+    non lascia la variabile vuota — le assegna il commento. La chiave risulta
+    quindi "presente", supera ogni controllo, e l'API risponde 403 mandando a
+    cercare il problema dalla parte sbagliata. E' successo con AUTH_SECRET e poi
+    con RAPIDAPI_KEY; la terza volta tocchera' a GMAIL_APP_PASSWORD, che nel
+    file ha la stessa forma.
+
+    Nessun segreto vero contiene spazi o comincia per '#': tanto basta.
+    """
+    if not valore:
+        return "[red]MANCANTE[/]", ""
+    if valore.lstrip().startswith("#") or "#" in valore:
+        return "[red]E' UN COMMENTO[/]", "il valore e' il commento della riga: spostalo sopra"
+    if any(c.isspace() for c in valore):
+        return "[yellow]SOSPETTO[/]", "contiene spazi: virgolette o commento rimasti dentro?"
+    return "[green]OK[/]", ""
 
 
 def _check_database() -> None:
