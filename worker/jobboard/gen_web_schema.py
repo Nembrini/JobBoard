@@ -137,12 +137,21 @@ def _column_expr(col: Column[Any]) -> tuple[str, str | None]:
         expr += ".notNull()"
 
     # Un default rende la colonna opzionale in inserimento anche lato TS.
-    if col.server_default is not None and isinstance(t, DateTime):
-        expr += ".defaultNow()"
-    elif col.default is not None:
-        literal = _ts_literal(getattr(col.default, "arg", None))
-        if literal is not None:
-            expr += f".default({literal})"
+    #
+    # **Solo il `server_default` conta**, mai il `default=` dell'ORM. Il secondo
+    # e' lato Python: lo applica SQLAlchemy al flush e nel DDL non finisce mai.
+    # Copiarlo qui produceva un `.default()` che il database non aveva, e
+    # Drizzle — che per una colonna con default scrive la parola chiave `default`
+    # nella VALUES — chiedeva a Postgres un valore inesistente. Il risultato era
+    # un `null value in column "progress" violates not-null constraint` sulla
+    # prima INSERT arrivata da Vercel. Vedi la migration ``d5b3e97c1a08``.
+    if col.server_default is not None:
+        if isinstance(t, DateTime):
+            expr += ".defaultNow()"
+        else:
+            literal = _ts_literal(getattr(col.default, "arg", None))
+            if literal is not None:
+                expr += f".default({literal})"
 
     return expr, enum_type
 

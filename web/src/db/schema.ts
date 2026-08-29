@@ -42,7 +42,7 @@ export type TaskType = "run_pipeline" | "generate_cv" | "apply" | "reparse_profi
 export type WorkMode = "on_site" | "hybrid" | "remote" | "unknown";
 
 export const candidateProfile = pgTable("candidate_profile", {
-  id: serial("id").primaryKey().default(1),
+  id: serial("id").primaryKey(),
   fullName: varchar("full_name", { length: 200 }).notNull(),
   email: varchar("email", { length: 320 }).notNull(),
   phone: varchar("phone", { length: 40 }),
@@ -109,7 +109,7 @@ export type JobRow = typeof job.$inferSelect;
 export type NewJob = typeof job.$inferInsert;
 
 export const profile = pgTable("profile", {
-  id: serial("id").primaryKey().default(1),
+  id: serial("id").primaryKey(),
   masterProfile: jsonb("master_profile").notNull(),
   rawText: text("raw_text").notNull(),
   sourceFileName: varchar("source_file_name", { length: 255 }).notNull(),
@@ -171,7 +171,7 @@ export type TaskRow = typeof task.$inferSelect;
 export type NewTask = typeof task.$inferInsert;
 
 export const workerHeartbeat = pgTable("worker_heartbeat", {
-  id: serial("id").primaryKey().default(1),
+  id: serial("id").primaryKey(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "date" }).notNull(),
   version: varchar("version", { length: 32 }),
   hostname: varchar("hostname", { length: 128 }),
@@ -206,6 +206,7 @@ export const jobSourceLink = pgTable("job_source_link", {
   externalId: varchar("external_id", { length: 300 }).notNull(),
   url: varchar("url", { length: 1024 }).notNull(),
   fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "date" }).notNull(),
+  publisher: varchar("publisher", { length: 120 }),
   raw: jsonb("raw"),
 });
 export type JobSourceLinkRow = typeof jobSourceLink.$inferSelect;

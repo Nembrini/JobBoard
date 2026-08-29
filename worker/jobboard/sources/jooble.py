@@ -106,5 +106,9 @@ def _to_raw_job(entry: dict[str, Any], country: str) -> RawJob | None:
         # Testo libero e in lingua locale: "30.000 € all'anno", "€15/ora".
         salary_text=str(entry.get("salary") or "") or None,
         contract_hint=str(entry.get("type") or "") or None,
+        # Jooble e' un aggregatore: `source` e' il sito da cui ha preso
+        # l'annuncio ("linkedin.com", "hireskys.com"). Vale la pena tenerlo
+        # anche quando non e' un portale famoso: dice dove si finisce cliccando.
+        publisher=str(entry.get("source") or "") or None,
         raw=entry,
     )

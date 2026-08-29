@@ -23,6 +23,7 @@ from .commands import (
     matches_app,
     profile_app,
     sources_app,
+    work_app,
 )
 from .config import get_settings
 
@@ -58,6 +59,7 @@ app.add_typer(profile_app)
 app.add_typer(candidate_app)
 app.add_typer(sources_app)
 app.add_typer(matches_app)
+app.add_typer(work_app)
 app.command(name="ingest")(ingest_command)
 app.command(name="match")(match_command)
 console = Console()
@@ -216,12 +218,6 @@ def run(
 ) -> None:
     """Pipeline completa: ingest, dedup, matching, notifiche. [Fase 8]"""
     raise typer.Exit(_not_implemented("run", "Fase 8"))
-
-
-@app.command()
-def worker() -> None:
-    """Avvia il consumer della coda e lo scheduler. [Fase 5]"""
-    raise typer.Exit(_not_implemented("worker", "Fase 5"))
 
 
 def _not_implemented(command: str, phase: str) -> int:

@@ -84,6 +84,15 @@ class RawJob(BaseModel):
     ats_board_token: str | None = None
     ats_job_id: str | None = None
 
+    #: Il portale su cui l'annuncio e' davvero pubblicato, quando la fonte e' un
+    #: aggregatore: "LinkedIn", "Indeed", "hireskys.com".
+    #:
+    #: Serve perche' senza, in dashboard, un annuncio LinkedIn e uno Indeed
+    #: compaiono entrambi come "jsearch" — il nome del tubo, non quello della
+    #: sorgente. E' il nome del portale la cosa che si guarda per decidere se
+    #: fidarsi di un annuncio e come candidarsi.
+    publisher: str | None = None
+
     #: Payload originale, salvato in ``job_source_link.raw``: permette di
     #: riprocessare senza rifare la chiamata, che con JSearch pesa sul budget.
     raw: dict[str, Any] = Field(default_factory=dict)

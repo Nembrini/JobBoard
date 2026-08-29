@@ -134,7 +134,9 @@ def _render_jobs(report: IngestReport, limit: int) -> None:
     table.add_column("Luogo", overflow="ellipsis", max_width=18)
     table.add_column("Mod.")
     table.add_column("RAL", justify="right")
-    table.add_column("Tipo", overflow="ellipsis", max_width=20)
+    # La colonna mostra `job_family`, non il tipo di contratto: chiamarla
+    # "Tipo" faceva sembrare un errore di normalizzazione una riga corretta.
+    table.add_column("Famiglia", overflow="ellipsis", max_width=20)
     table.add_column("Fonti")
 
     # Prima gli annunci visti da piu' fonti: sono quelli su cui la dedup ha

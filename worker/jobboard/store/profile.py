@@ -61,6 +61,7 @@ def save_profile(
     reviewed: bool,
     raw_text: str | None = None,
     source_file_name: str | None = None,
+    source_storage_path: str | None = None,
 ) -> StoredProfile:
     """Scrive il profilo, creando la riga se non c'e'.
 
@@ -84,6 +85,11 @@ def save_profile(
         row.raw_text = raw_text
     if source_file_name is not None:
         row.source_file_name = source_file_name
+    # Solo quando arriva: un JSON ricaricato a mano non ripassa dal file, e
+    # azzerare il percorso qui vorrebbe dire perdere il link per riscaricare
+    # l'originale a ogni correzione.
+    if source_storage_path is not None:
+        row.source_storage_path = source_storage_path
 
     row.embedding = to_bytes(embedding) if embedding is not None else None
     row.embedding_model = embedding_model if embedding is not None else None

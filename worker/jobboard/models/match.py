@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, TimestampMixin, enum_column
+from .base import Base, TimestampMixin, default_sql, enum_column
 from .enums import MatchStatus
 from .job import Job
 
@@ -56,14 +56,14 @@ class Match(Base, TimestampMixin):
     rationale: Mapped[str | None] = mapped_column(Text)
     #: Requisiti richiesti che il profilo non copre. Evidenziati nel drawer di
     #: dettaglio e usati dal generatore di CV per non sovrastimare la copertura.
-    gaps: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    gaps: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list, server_default=default_sql("'{}'"))
 
     scored_with: Mapped[str | None] = mapped_column(String(128))
     scored_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     #: A quale stadio dell'imbuto l'annuncio si e' fermato (0, 1 o 2). Un annuncio
     #: fermo allo stadio 0 non ha ``score``: e' stato escluso da un hard filter.
-    reached_stage: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    reached_stage: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default=default_sql("0"))
     #: Motivo dell'esclusione, quando ``reached_stage`` e' 0.
     filtered_reason: Mapped[str | None] = mapped_column(String(200))
 

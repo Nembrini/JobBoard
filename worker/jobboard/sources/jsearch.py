@@ -98,11 +98,40 @@ class JSearchAdapter(SourceAdapter):
         if query.remote_only:
             params["work_from_home"] = "true"
 
-        payload = http.get_json(_ENDPOINT, params=params)
+        try:
+            payload = http.get_json(_ENDPOINT, params=params)
+        except SourceError as exc:
+            raise _explain(exc) from exc
+
         for entry in payload.get("data") or []:
             job = _to_raw_job(entry)
             if job is not None:
                 yield job
+
+
+def _explain(exc: SourceError) -> SourceError:
+    """Traduce i due errori di RapidAPI che si somigliano e si curano diversamente.
+
+    Su RapidAPI la chiave dell'account e l'abbonamento alla singola API sono due
+    cose separate: si puo' avere una chiave perfettamente valida e ricevere lo
+    stesso 403, perche' a quella API non si e' iscritti. Il messaggio grezzo
+    ("You are not subscribed to this API") manda a controllare la chiave, che e'
+    esattamente il posto dove non c'e' niente da sistemare.
+    """
+    testo = str(exc)
+    if "not subscribed" in testo.lower():
+        return SourceError(
+            "JSearch: la chiave e' valida ma l'account RapidAPI non e' iscritto a "
+            "questa API. Aprire rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch e "
+            "sottoscrivere il piano Basic (gratuito, ~200 chiamate al mese); "
+            "l'iscrizione e' per singola API, non per account."
+        )
+    if "429" in testo:
+        return SourceError(
+            "JSearch: quota mensile esaurita. Riprende con il rinnovo del piano; "
+            "nel frattempo le altre fonti continuano a girare."
+        )
+    return exc
 
 
 def _date_filter(days: int) -> str:
@@ -146,6 +175,10 @@ def _to_raw_job(entry: dict[str, Any]) -> RawJob | None:
         salary_currency=str(entry.get("job_salary_currency") or "") or None,
         salary_period=_PERIODS.get(period_raw),
         contract_hint=str(entry.get("job_employment_type") or "") or None,
+        # Il portale vero: "LinkedIn", "Indeed", "Glassdoor". E' l'unico motivo
+        # per cui questa fonte esiste, e senza salvarlo la dashboard mostrerebbe
+        # "jsearch" al posto del nome che si sta cercando.
+        publisher=str(entry.get("job_publisher") or "") or None,
         # `job_apply_is_direct` distingue il form dell'azienda dal reindirizzamento
         # a un portale: solo il primo può portare a una candidatura automatica.
         apply_url=str(apply_link) if entry.get("job_apply_is_direct") and apply_link else None,

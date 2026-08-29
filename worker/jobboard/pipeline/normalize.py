@@ -60,6 +60,10 @@ class NormalizedJob:
     ats_job_id: str | None
 
     posted_at: datetime | None
+    #: Il portale che pubblica davvero l'annuncio, quando la fonte e' un
+    #: aggregatore. Passa da qui senza essere toccato: e' un nome proprio, e
+    #: normalizzarlo vorrebbe dire riscrivere "LinkedIn" a modo nostro.
+    publisher: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -96,6 +100,7 @@ def normalize(job: RawJob) -> NormalizedJob:
         ats_board_token=job.ats_board_token,
         ats_job_id=job.ats_job_id,
         posted_at=job.posted_at,
+        publisher=job.publisher,
         raw=job.raw,
     )
 

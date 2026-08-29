@@ -449,6 +449,7 @@ def _upsert_link(
                 external_id=variant.external_id,
                 url=variant.url,
                 fetched_at=now,
+                publisher=variant.publisher,
                 raw=variant.raw or None,
             )
         )
@@ -456,6 +457,7 @@ def _upsert_link(
 
     link.fetched_at = now
     link.url = variant.url
+    link.publisher = variant.publisher or link.publisher
     link.raw = variant.raw or link.raw
     # Lo stesso external_id puntava a un altro Job: succede quando la dedup
     # unisce due annunci che prima erano separati.

@@ -123,3 +123,37 @@ def test_every_enum_column_has_a_check_constraint() -> None:
                 if expected not in checks:
                     missing.append(f"{table.name}.{col.name} (atteso {expected})")
     assert not missing, "colonne enum senza vincolo CHECK: " + ", ".join(missing)
+
+
+def test_ogni_default_dell_orm_ha_anche_un_default_sul_database() -> None:
+    """Un ``default=`` senza ``server_default=`` e' una colonna che rompe da Vercel.
+
+    Regressione reale, e costosa da diagnosticare. Il ``default=`` di SQLAlchemy
+    vive **solo nell'ORM**: lo applica il flush, e nel DDL non finisce mai. Finche'
+    a scrivere era solo il worker non si vedeva nulla; la prima ``INSERT`` arrivata
+    dalla dashboard — Drizzle, che per una colonna con default scrive la parola
+    chiave ``default`` nella ``VALUES`` — e' morta con
+
+        null value in column "progress" of relation "task"
+        violates not-null constraint
+
+    e non era un caso isolato: erano trentacinque colonne su tutto lo schema.
+    Riguarda ogni tabella in cui la dashboard scrivera' — ``task`` nella Fase 5,
+    ``application`` nella Fase 7.
+
+    Le colonne nullable restano fuori: li' l'assenza di default significa NULL, che
+    e' un valore legittimo e spesso quello giusto.
+    """
+    mancanti = []
+    for table in Base.metadata.sorted_tables:
+        for col in table.columns:
+            if col.primary_key or col.nullable:
+                continue
+            if col.default is not None and col.server_default is None:
+                mancanti.append(f"{table.name}.{col.name}")
+
+    assert not mancanti, (
+        "colonne NOT NULL con default solo lato ORM: " + ", ".join(mancanti) +
+        " — aggiungere server_default=default_sql(...), altrimenti ogni INSERT "
+        "che non passa dall'ORM fallisce sul NOT NULL"
+    )

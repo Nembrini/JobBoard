@@ -7,7 +7,7 @@ import re
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import DateTime, MetaData, func
+from sqlalchemy import DateTime, MetaData, func, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -39,7 +39,17 @@ def enum_column(enum_cls: type[StrEnum], **kwargs: Any) -> Mapped[Any]:
     un valore fuori dall'enum verrebbe scritto senza che nessuno se ne accorga.
 
     Vedi la nota in ``enums.py`` sul perche' non si usano gli ENUM nativi.
+
+    Un ``default=`` porta con se' anche il ``server_default`` corrispondente. Non
+    e' una comodita': il ``default=`` di SQLAlchemy vive **solo nell'ORM**, e una
+    ``INSERT`` che non passa di li' — quelle che la dashboard su Vercel manda con
+    Drizzle — finisce contro il ``NOT NULL`` senza valore. Vedi la migration
+    ``d5b3e97c1a08``, scritta dopo che era successo davvero.
     """
+    predefinito = kwargs.get("default")
+    if predefinito is not None and "server_default" not in kwargs:
+        kwargs["server_default"] = text(f"'{predefinito.value}'")
+
     return mapped_column(
         SAEnum(
             enum_cls,
@@ -51,6 +61,15 @@ def enum_column(enum_cls: type[StrEnum], **kwargs: Any) -> Mapped[Any]:
         ),
         **kwargs,
     )
+
+
+def default_sql(valore: str) -> Any:
+    """Scorciatoia leggibile per i ``server_default`` letterali.
+
+    Esiste per rendere ovvio, a chi aggiunge una colonna, che accanto al
+    ``default=`` dell'ORM ne serve uno del database. Vedi ``enum_column``.
+    """
+    return text(valore)
 
 
 def utcnow() -> dt.datetime:

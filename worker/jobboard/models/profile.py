@@ -17,7 +17,7 @@ from sqlalchemy import CheckConstraint, DateTime, Integer, LargeBinary, String, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TimestampMixin
+from .base import Base, TimestampMixin, default_sql
 
 
 class Profile(Base, TimestampMixin):
@@ -51,7 +51,7 @@ class Profile(Base, TimestampMixin):
     #: ``True`` solo dopo che Filippo ha rivisto a mano il JSON estratto dall'LLM.
     #: La pipeline di matching rifiuta di partire finche' e' ``False``: un profilo
     #: estratto male avvelenerebbe ogni punteggio a valle.
-    reviewed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    reviewed: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=default_sql("false"))
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -77,18 +77,18 @@ class CandidateProfile(Base, TimestampMixin):
     #: Diritto al lavoro per paese, es. ``{"IT": "citizen", "DE": "eu_eligible",
     #: "US": "requires_sponsorship"}``. Alimenta un hard filter dello Stadio 0:
     #: candidarsi dove serve sponsorship e' quasi sempre tempo sprecato.
-    work_authorization: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
+    work_authorization: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict, server_default=default_sql("'{}'::jsonb"))
 
-    willing_to_relocate: Mapped[bool] = mapped_column(nullable=False, default=False)
+    willing_to_relocate: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=default_sql("false"))
     notice_period_days: Mapped[int | None] = mapped_column(Integer)
 
     salary_expectation_min: Mapped[int | None] = mapped_column(Integer)
     salary_expectation_max: Mapped[int | None] = mapped_column(Integer)
-    salary_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="EUR")
+    salary_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="EUR", server_default=default_sql("'EUR'"))
 
     #: Lingue parlate con livello CEFR, es. ``{"it": "native", "en": "C1"}``.
-    languages: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
+    languages: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict, server_default=default_sql("'{}'::jsonb"))
 
     #: Risposte alle domande ricorrenti dei form ATS (EEO, disponibilita' a
     #: trasferte, come hai saputo di noi...). Chiave = domanda normalizzata.
-    ats_answers: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    ats_answers: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=default_sql("'{}'::jsonb"))
