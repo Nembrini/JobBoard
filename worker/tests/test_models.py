@@ -153,7 +153,8 @@ def test_ogni_default_dell_orm_ha_anche_un_default_sul_database() -> None:
                 mancanti.append(f"{table.name}.{col.name}")
 
     assert not mancanti, (
-        "colonne NOT NULL con default solo lato ORM: " + ", ".join(mancanti) +
-        " — aggiungere server_default=default_sql(...), altrimenti ogni INSERT "
+        "colonne NOT NULL con default solo lato ORM: "
+        + ", ".join(mancanti)
+        + " — aggiungere server_default=default_sql(...), altrimenti ogni INSERT "
         "che non passa dall'ORM fallisce sul NOT NULL"
     )

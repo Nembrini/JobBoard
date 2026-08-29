@@ -60,11 +60,15 @@ class Application(Base, TimestampMixin):
     # --- invio ---
     submitted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     #: ``True`` quando l'invio e' stato simulato senza contattare l'ATS.
-    was_dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=default_sql("false"))
+    was_dry_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=default_sql("false")
+    )
     ats_response: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     #: Screenshot del form Tier B, per poter ricostruire cosa e' stato compilato.
-    screenshots: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list, server_default=default_sql("'{}'"))
+    screenshots: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list, server_default=default_sql("'{}'")
+    )
 
     # --- follow-up ---
     follow_up_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

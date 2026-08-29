@@ -36,6 +36,17 @@ chiuso la Publisher API nel 2023. Le uniche due strade sono:
 Conseguenza pratica: la copertura di LinkedIn è quella che **Google ha indicizzato**,
 non il 100% del portale. Le job board degli ATS restano la fonte con i dati migliori.
 
+**L'API cambia sotto i piedi, e in silenzio.** La v5 non è una revisione della
+v1: endpoint diverso (`/search-v2`; il vecchio risponde `404`, non un redirect),
+`data` passato da elenco a oggetto con dentro `jobs`, impaginazione a cursore.
+E — cosa che si vede solo guardando una risposta vera — i campi strutturati
+arrivano quasi sempre vuoti: su dieci annunci italiani, `job_country` era
+valorizzato una volta sola e le due colonne con la data di pubblicazione zero.
+Quello che c'è sempre è testo libero e localizzato: `job_location` («Ivrea TO •
+tramite LinkedIn») e `job_posted_at` («4 giorni fa»). L'adapter legge quelli, e
+`tests/test_jsearch.py` fissa la forma così che il prossimo cambio rompa un test
+invece di una run notturna.
+
 **Su RapidAPI la chiave e l'abbonamento sono due cose separate.** Una chiave valida
 non dà accesso a niente finché non ci si iscrive alla singola API — anche al suo
 piano gratuito. Finché l'iscrizione manca, JSearch risponde `403 You are not

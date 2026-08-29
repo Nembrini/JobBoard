@@ -180,7 +180,7 @@ def run_once(tipi: tuple[TaskType, ...] | None = None) -> bool:
     # funzione registra i gestori la prima volta che servono davvero, e lascia
     # che chi importa la coda solo per leggere un battito non si tiri dietro
     # fastembed e il client LLM.
-    from . import handlers  # noqa: F401, PLC0415
+    from . import handlers  # noqa: F401
 
     with session_scope() as session:
         contesto = claim(session, tipi)
@@ -203,7 +203,7 @@ def run_once(tipi: tuple[TaskType, ...] | None = None) -> bool:
     log.info("task %d (%s) preso in carico", contesto.task_id, contesto.task_type)
     try:
         risultato = gestore(contesto)
-    except Exception as exc:  # noqa: BLE001 — un gestore che esplode non deve fermare il worker
+    except Exception as exc:
         log.exception("task %d fallito", contesto.task_id)
         riprova = _fallisci(contesto.task_id, f"{type(exc).__name__}: {exc}")
         log.info("task %d: %s", contesto.task_id, "torna in coda" if riprova else "abbandonato")
@@ -241,14 +241,14 @@ def serve(poll_seconds: int = 30, tipi: tuple[TaskType, ...] | None = None) -> N
                 with session_scope() as session:
                     heartbeat(session)
                 ultimo_battito = adesso
-            except Exception:  # noqa: BLE001
+            except Exception:
                 # Il battito e' un'informazione, non il lavoro: se il database
                 # non risponde si riprova al giro dopo invece di uscire.
                 log.warning("battito non scritto, riprovo", exc_info=True)
 
         try:
             lavorato = run_once(tipi)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("errore nel ciclo, continuo")
             lavorato = False
 
