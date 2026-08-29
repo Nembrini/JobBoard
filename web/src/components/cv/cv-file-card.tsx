@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Download, FileText, Loader2, TriangleAlert, Upload } from "lucide-react";
 
+import { TaskProgress } from "@/components/task-progress";
 import { eliminaProfilo } from "@/lib/profile-actions";
+import type { StatoTask } from "@/lib/tasks";
 
 /**
  * Il CV attualmente caricato, con le due azioni che lo riguardano.
@@ -31,7 +33,7 @@ export function CvFileCard({
   embeddingDim: number | null;
   downloadUrl: string | null;
   workerOnline: boolean;
-  taskInCorso: { status: "pending" | "running"; progressMessage: string | null } | null;
+  taskInCorso: StatoTask | null;
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -150,16 +152,16 @@ export function CvFileCard({
         </p>
       ) : null}
 
-      {taskInCorso ? (
-        <p className="text-muted-foreground flex items-center gap-2 border-t px-5 py-3 text-sm">
-          <Loader2 className="size-4 shrink-0 animate-spin" />
-          {taskInCorso.status === "running"
-            ? (taskInCorso.progressMessage ?? "Il worker sta rileggendo il CV.")
-            : workerOnline
-              ? "In coda: il worker lo prende entro mezzo minuto."
-              : "In coda. Il PC di casa è spento: parte da solo alla riaccensione."}
-        </p>
-      ) : null}
+      {/* Le quattro frasi (in coda, in corso, fatto, errore) stanno tutte in
+          `TaskProgress`: erano scritte qui, ma "in coda a worker spento non è
+          un errore" è una lezione che vale identica per la raccolta, e due
+          copie della stessa frase divergono alla prima correzione. */}
+      <TaskProgress
+        iniziale={taskInCorso}
+        workerOnline={workerOnline}
+        riepilogo={riepilogoRilettura}
+        compatto
+      />
 
       {conferma ? (
         <div className="space-y-3 border-t px-5 py-4">
@@ -195,6 +197,22 @@ export function CvFileCard({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Cosa dire quando il worker ha finito di rileggere il CV.
+ *
+ * Il conteggio di esperienze e punti non è decorazione: è il modo più rapido di
+ * accorgersi che l'estrazione ha perso metà del CV, che è l'errore che poi si
+ * paga in punteggi sbagliati per mesi. La frase finale la scrive il worker
+ * stesso (`next`), perché è lui a sapere che il matching resta fermo finché il
+ * profilo non è confermato.
+ */
+function riepilogoRilettura(result: Record<string, unknown>): string {
+  const esperienze = typeof result.experiences === "number" ? result.experiences : 0;
+  const punti = typeof result.bullets === "number" ? result.bullets : 0;
+  const coda = typeof result.next === "string" ? ` ${result.next}` : "";
+  return `Riletto: ${esperienze} esperienze, ${punti} punti.${coda}`;
 }
 
 /** La stessa scheda quando non c'è ancora nessun CV. */

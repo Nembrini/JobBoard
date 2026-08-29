@@ -126,6 +126,37 @@ ogni 30 s: è quella che alimenta l'indicatore online/offline.
 
 Latenza attesa fra click e inizio esecuzione: **entro 30 secondi**.
 
+### Ritentare non è sempre giusto (Fase 5.4)
+
+Il criterio iniziale era uno solo: un task fallito torna in coda finché `attempts` non
+raggiunge `max_attempts`. È corretto per un guasto passeggero — una API che risponde 503,
+la rete di casa che cade a metà raccolta — e sbagliato per tutto il resto: un profilo non
+ancora confermato non si conferma da solo fra un tentativo e l'altro, e un PDF fatto di
+scansioni non diventa testo al secondo passaggio. In entrambi i casi il ritentativo
+riscrive lo stesso errore due volte in più e basta.
+
+Con `run_pipeline` smette di essere gratis: **ogni presa rifà la raccolta**, e il piano
+JSearch è di circa 200 chiamate al mese. Tre tentativi su un errore che non può cambiare
+esito costerebbero il triplo delle chiamate per lo stesso identico messaggio finale.
+
+Da qui `TaskError(..., definitivo=True)`, che spegne il ritentativo per gli errori che il
+codice sa già essere definitivi. Tutto il resto — comprese le eccezioni non previste —
+resta ritentabile, che è il comportamento giusto quando non si sa.
+
+### La deduplica in coda sta nel database, non nel bottone
+
+Il bottone "Aggiorna adesso" si disabilita mentre una raccolta è aperta, ma quella è una
+difesa che vale per una sola scheda. Il caso vero sono due dispositivi — il telefono in
+mano e il portatile aperto — o la stessa pagina riaperta a worker spento, dove il tasto
+premuto una seconda volta è un gesto ragionevole perché non è successo ancora niente.
+
+`enqueueTask` scarta quindi un accodamento se ne esiste già uno **dello stesso tipo e con
+lo stesso payload** in `pending` o `running`. Che il payload conti è il punto: due
+`run_pipeline` chiedono la stessa cosa e la seconda è sprecata, mentre due
+`reparse_profile` nominano due file diversi e scartare il secondo vorrebbe dire ignorare
+in silenzio il CV appena caricato. Il confronto è fra `jsonb`, quindi l'ordine delle
+chiavi non conta.
+
 ## 5. Scelte tecniche e motivazioni
 
 ### Next.js invece di Vite/SPA

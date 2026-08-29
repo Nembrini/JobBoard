@@ -1,3 +1,4 @@
+import { formatAgo } from "@/lib/format";
 import { getWorkerStatus } from "@/lib/queries";
 
 /**
@@ -36,12 +37,4 @@ export async function WorkerStatus() {
       {testo}
     </span>
   );
-}
-
-function formatAgo(minuti: number | null): string {
-  if (minuti === null) return "mai";
-  if (minuti < 60) return `${minuti} min fa`;
-  const ore = Math.floor(minuti / 60);
-  if (ore < 24) return `${ore} h fa`;
-  return `${Math.floor(ore / 24)} g fa`;
 }

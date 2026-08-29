@@ -226,11 +226,37 @@ Lavori chiesti a Fase 4 conclusa, tutti verificati in locale sui dati veri.
       un lavoro che nessuno esegue.
 - [x] **5.3** `worker_heartbeat` scritto ogni 30 s dal consumer; l'indicatore in testata
       c'era già dalla Fase 4 e ora ha qualcosa da leggere.
-- [ ] **5.4** Componente di progresso task in UI: in coda / in corso / fatto / errore.
-      *Parziale:* la pagina CV mostra già lo stato del `reparse_profile` in corso; manca
-      il componente generico e il bottone "Aggiorna adesso" che accoda `run_pipeline`.
+- [x] **5.4** Componente di progresso generico (`TaskProgress`): in coda / in corso /
+      fatto / errore, uno per tutti i tipi di task. Le quattro frasi difficili sono
+      sempre le stesse — «in coda a worker spento non è un errore», «un tentativo
+      fallito che tornerà in coda non è un fallimento» — e scritte due volte
+      divergerebbero alla prima correzione. Lo usano la pagina CV e la dashboard.
+- [x] **5.5** Bottone **"Aggiorna adesso"** che accoda `run_pipeline`, con l'ora
+      dell'ultima raccolta accanto. Il polling interroga `/api/tasks`, non ricarica la
+      pagina: la dashboard fa cinque query e rifarle ogni quattro secondi per muovere una
+      barra sarebbe un carico ricorrente su Supabase. Il ricaricamento vero avviene **una
+      volta**, a lavoro concluso, quando c'è davvero qualcosa di nuovo da mostrare. Una
+      scheda in secondo piano smette di interrogare.
+- [x] **5.6** Gestore `run_pipeline` nel worker: raccolta e poi matching, in **due
+      transazioni distinte** — tenerne una sola aperta per i cinque minuti della rubrica
+      LLM significherebbe un lock su Supabase per tutto quel tempo e il battito che non
+      riesce a scriversi, cioè l'indicatore in testata che dice "offline" proprio mentre
+      il worker lavora. A fine run scrive `worker_heartbeat.last_run_at` e
+      `last_run_status`, che erano colonne mai popolate.
+- [x] **5.7** `TaskError(definitivo=True)`: un errore che non può cambiare esito non
+      torna in coda. Su `run_pipeline` il ritentativo rifà l'intera raccolta, e il piano
+      JSearch è di ~200 chiamate al mese.
 
-**Verifica:** dal telefono premi "Aggiorna adesso"; a worker acceso il task viene raccolto entro 30 s e la UI segue l'avanzamento; a worker spento il task resta in coda e parte da solo al riavvio.
+**Verifica:** eseguita end-to-end su Postgres locale con le migration vere.
+Premendo il bottone viene inserita **una** riga `run_pipeline` (una seconda pressione da
+un altro dispositivo non ne aggiunge una copia), il bottone si spegne e compare
+"Raccolta in coda". Muovendo il task a `running` la barra segue l'avanzamento senza
+ricaricare la pagina — `remotive (3/9) 22%` → `stadio 2: 12/40 71%` — e alla conclusione
+si riaccende il bottone e compare il riepilogo *"7 annunci nuovi · 31 valutati · 2 sopra
+la soglia di 65"*. `jb work --once` su un profilo mancante chiude il task come `failed`
+con **un solo tentativo** e `last_run_status = partial`; lo stesso errore su un guasto di
+rete lo lascia `pending` con `attempts = 1`. Un successo sparisce dalla UI dopo 30
+minuti, un errore resta 24 ore.
 
 ---
 

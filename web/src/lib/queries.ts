@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { getDb } from "@/db";
@@ -336,12 +337,28 @@ export async function getCounters() {
  *
  * È quello che alimenta l'indicatore online/offline: senza, premere "Candidati"
  * a PC spento darebbe un silenzio indistinguibile da un errore.
+ *
+ * Avvolta in `cache` perché nella stessa pagina la chiedono in due — la testata
+ * per il pallino e la barra "Aggiorna adesso" per sapere cosa scrivere accanto
+ * al bottone. Una richiesta, una query.
  */
-export async function getWorkerStatus() {
+export const getWorkerStatus = cache(async () => {
   await guard();
   const rows = await getDb().select().from(workerHeartbeat).limit(1);
   const riga = rows[0];
-  if (!riga) return { online: false, lastSeen: null, minutesAgo: null };
+  // Stessa forma anche quando il worker non ha mai battuto: un ramo che
+  // restituisce meno campi dell'altro costringe ogni chiamante a distinguere
+  // due tipi per dire la stessa cosa, cioè "non lo so".
+  if (!riga) {
+    return {
+      online: false,
+      lastSeen: null,
+      minutesAgo: null,
+      lastRunAt: null,
+      lastRunStatus: null,
+      minutesSinceRun: null,
+    };
+  }
 
   const minuti = Math.floor((Date.now() - riga.lastSeenAt.getTime()) / 60_000);
   return {
@@ -352,5 +369,13 @@ export async function getWorkerStatus() {
     minutesAgo: minuti,
     lastRunAt: riga.lastRunAt,
     lastRunStatus: riga.lastRunStatus,
+    // "Quanto tempo fa" si calcola qui e non nel componente: leggere l'orologio
+    // durante il render è impuro, e il valore cambierebbe fra due render dello
+    // stesso albero. Qui è una lettura sola, accanto al dato che descrive.
+    minutesSinceRun: minutiDa(riga.lastRunAt),
   };
+});
+
+function minutiDa(quando: Date | null): number | null {
+  return quando ? Math.floor((Date.now() - quando.getTime()) / 60_000) : null;
 }

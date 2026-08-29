@@ -112,6 +112,24 @@ export function scoreBand(score: number | null): "alto" | "medio" | "basso" | "a
   return "basso";
 }
 
+/**
+ * Da quanto tempo, in scala grossolana.
+ *
+ * Serve al battito del worker e all'ora dell'ultima raccolta: due dati che si
+ * leggono per decidere se premere un bottone, non per fare i conti. "3 h fa" è
+ * quello che serve sapere; il minuto esatto è precisione che non cambia nessuna
+ * decisione.
+ */
+export function formatAgo(minuti: number | null): string {
+  if (minuti === null) return "mai";
+  if (minuti < 1) return "adesso";
+  if (minuti < 60) return `${minuti} min fa`;
+  const ore = Math.floor(minuti / 60);
+  if (ore < 24) return `${ore} h fa`;
+  const giorni = Math.floor(ore / 24);
+  return giorni === 1 ? "ieri" : `${giorni} g fa`;
+}
+
 export function formatDate(value: Date | string | null): string {
   if (!value) return "—";
   const data = typeof value === "string" ? new Date(value) : value;

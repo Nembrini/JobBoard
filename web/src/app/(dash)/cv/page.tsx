@@ -5,9 +5,10 @@ import { CvFileCard, CvVuoto } from "@/components/cv/cv-file-card";
 import { ProfileEditor } from "@/components/cv/profile-editor";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/dal";
-import { getProfile, getReparseTask } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 import { getWorkerStatus } from "@/lib/queries";
 import { signedUrl } from "@/lib/storage";
+import { getLatestTask } from "@/lib/tasks";
 
 export const metadata = { title: "CV" };
 
@@ -29,7 +30,7 @@ export default async function CvPage() {
 
   const [profilo, task, worker] = await Promise.all([
     getProfile(),
-    getReparseTask(),
+    getLatestTask("reparse_profile"),
     getWorkerStatus(),
   ]);
 
