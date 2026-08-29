@@ -36,6 +36,20 @@ chiuso la Publisher API nel 2023. Le uniche due strade sono:
 Conseguenza pratica: la copertura di LinkedIn è quella che **Google ha indicizzato**,
 non il 100% del portale. Le job board degli ATS restano la fonte con i dati migliori.
 
+**Su RapidAPI la chiave e l'abbonamento sono due cose separate.** Una chiave valida
+non dà accesso a niente finché non ci si iscrive alla singola API — anche al suo
+piano gratuito. Finché l'iscrizione manca, JSearch risponde `403 You are not
+subscribed to this API`, che manda a controllare la chiave, cioè l'unico posto dove
+non c'è niente da sistemare. L'adapter traduce quel 403 nel comando da eseguire.
+
+**Il nome del portale è un dato, non un dettaglio.** Adzuna, Jooble e JSearch non
+pubblicano: ripubblicano. Sapere che un annuncio sta su LinkedIn e non su una board
+Greenhouse cambia come ci si candida, quindi il publisher dichiarato
+dall'aggregatore finisce in `job_source_link.publisher` ed è quello che si legge
+nella colonna Fonte. È una colonna e non una lettura di `raw` perché la dashboard la
+mostra su ogni riga di ogni pagina, e `raw` è un JSONB che Postgres dovrebbe
+decomprimere per intero per estrarne una parola.
+
 ### 2.2 Su Vercel non può girare tutto
 
 Le funzioni serverless hanno filesystem effimero, bundle limitato a ~250 MB e timeout
@@ -216,6 +230,28 @@ migration. Il lato Next.js riceve i tipi TypeScript da un generatore
 
 Risultato: un solo posto dove si cambia una colonna, e nessuna possibilità di drift fra
 i due linguaggi.
+
+#### Il `default=` dell'ORM non è un default del database
+
+Vale la pena scriverlo perché è costato una diagnosi. In SQLAlchemy `default=` è un
+valore **lato Python**: lo applica la sessione al momento del flush, e nel DDL non
+finisce mai. Trentacinque colonne `NOT NULL` dello schema lo avevano senza avere un
+`DEFAULT` vero, e finché a scrivere era solo il worker la differenza non si vedeva.
+
+Si è vista alla prima `INSERT` arrivata da Vercel. Drizzle, per una colonna che il
+suo schema dichiara con un default, scrive la parola chiave `default` nella `VALUES`
+— cioè chiede a Postgres il default della colonna, che non c'era:
+
+    null value in column "progress" of relation "task"
+    violates not-null constraint
+
+Il generatore ci metteva del suo: copiava `col.default` — quello Python — in un
+`.default()` TypeScript, e il lato web credeva quindi in un default che il database
+non aveva. Tre correzioni, tutte necessarie: i modelli dichiarano `server_default`
+accanto a `default` (`enum_column` lo deriva da solo), la migration `d5b3e97c1a08` li
+scrive sul database, e il generatore emette `.default()` **solo** a fronte di un
+`server_default`. Un test senza database (`test_ogni_default_dell_orm_ha_anche_un_default_sul_database`)
+impedisce che la cosa si ripresenti alla prossima colonna.
 
 ## 6. Modello dati
 
@@ -609,6 +645,42 @@ connessioni in sviluppo — peggiora le cose. Next valuta i moduli in più conte
 client lo deposita lì, e se non è quello che serve le richieste il risultato è di nuovo
 una query che non torna mai. Il singleton è quindi **di modulo**, e le connessioni non
 si accumulano lo stesso grazie a `idleTimeoutMillis`.
+
+## 11bis. La sezione CV
+
+La dashboard mostra **il profilo come lo legge la macchina**, non un'anteprima del
+PDF. Il PDF si può già aprire; quello che decide ogni punteggio e ogni frase di ogni
+CV generato è il `MasterProfile` strutturato che ci sta sotto, e un'estrazione
+sbagliata lì non si vede da nessun'altra parte — si vede solo nei punteggi, mesi
+dopo, come una compatibilità che non torna.
+
+**Ogni punto è mostrato scomposto in ACR** (Azione, Contesto, Risultato), con il suo
+id stabile in evidenza e un avviso esplicito quando manca il risultato misurabile:
+il CV su misura potrà riformulare la frase, non aggiungerci un numero che nel CV di
+partenza non c'è. È lo stesso limite che il validatore anti-invenzione della Fase 6
+farà rispettare, reso visibile prima invece che dopo.
+
+Tre regole di scrittura, tutte con un motivo:
+
+- **Gli id non sono modificabili.** Sono le chiavi con cui il validatore dirà *quale*
+  voce giustifica una frase: si assegnano alla creazione e restano. Si vedono perché
+  servono a leggere i suoi messaggi, non perché ci sia da metterci mano.
+- **Si salva tutto insieme.** Il profilo è una colonna JSONB: si riscrive per intero
+  o non si riscrive. Form indipendenti che salvano a turno darebbero l'illusione di
+  modifiche parziali su un dato che parziale non è.
+- **Il salvataggio azzera l'embedding.** Se cambiano le esperienze e il vettore resta
+  quello di prima, lo Stadio 1 continua a lavorare sul CV vecchio senza che niente lo
+  segnali. Meglio nessun vettore che uno che mente: il worker vede
+  `embedding_model` nullo e lo ricalcola.
+
+Il **caricamento** di un CV nuovo segue l'architettura split: la dashboard mette il
+file nel bucket privato e accoda un `reparse_profile`; a estrarre il testo, farlo
+strutturare a un LLM e ricalcolare l'embedding è il PC di casa, perché nessuna delle
+tre cose sta in una funzione serverless. Il profilo che ne esce è `reviewed = False`
+e il matching non riparte finché non lo si conferma dalla pagina: un'estrazione
+automatica non è una revisione. Se l'accodamento fallisce, il file appena caricato
+viene rimosso dal bucket — altrimenti resterebbe un PDF che nessuna riga del
+database nomina.
 
 ## 12. Rischi noti e mitigazioni
 

@@ -20,7 +20,7 @@ export async function WorkerStatus() {
 
   return (
     <span
-      className="text-muted-foreground inline-flex items-center gap-2 text-xs"
+      className="text-muted-foreground inline-flex items-center gap-2 text-sm whitespace-nowrap"
       title={
         stato.online
           ? "Il PC di casa è acceso: CV e candidature partono subito."

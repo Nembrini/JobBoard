@@ -18,16 +18,22 @@ credenziali, quindi non sono automatizzabili.
 
 - [x] **Installare Python 3.12** da [python.org](https://www.python.org/downloads/release/python-31210/)
       selezionando "Add python.exe to PATH". Non rimuovere il 3.14 già presente: convivono.
-- [ ] Creare un progetto **Supabase** gratuito, region `eu-central-1` (Francoforte).
+- [x] Creare un progetto **Supabase** gratuito, region `eu-central-1` (Francoforte).
       Annotare: connection string diretta, connection string pooler, project URL, service role key.
-- [ ] Creare nel progetto Supabase un bucket Storage **privato** chiamato `resumes`.
+- [x] Creare nel progetto Supabase un bucket Storage **privato** chiamato `resumes`.
 - [ ] Creare un account **Vercel** e collegarlo al repository.
-- [ ] Creare credenziali **Google OAuth** su Google Cloud Console (tipo "Web application"),
+- [x] Creare credenziali **Google OAuth** su Google Cloud Console (tipo "Web application"),
       con redirect URI `https://<dominio-vercel>/api/auth/callback/google`.
 - [ ] Ottenere una **API key Anthropic** su console.anthropic.com (a consumo, separata
       dall'abbonamento Claude Code).
-- [ ] Registrare le chiavi gratuite delle fonti: **Adzuna** (app id + key), **Jooble**,
+- [x] Registrare le chiavi gratuite delle fonti: **Adzuna** (app id + key), **Jooble**,
       **RapidAPI** per JSearch.
+- [ ] **Iscriversi alla API JSearch su RapidAPI**, piano Basic (gratuito, ~200 chiamate
+      al mese): [rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
+      → *Subscribe to Test*. Su RapidAPI la chiave dell'account e l'abbonamento alla
+      singola API sono due cose separate: con la chiave e senza iscrizione la fonte
+      risponde `403 You are not subscribed to this API`. **È l'unico passo che manca
+      per vedere gli annunci LinkedIn e Indeed in tabella.**
 - [ ] Attivare la verifica in due passaggi su Gmail e generare una **App Password** per
       SMTP/IMAP. Serve solo dalla Fase 8 in poi.
 
@@ -187,12 +193,42 @@ reindirizzano al login, le API rispondono `401 {"error":"non autorizzato"}`.
 
 ---
 
+## Fase 4bis — Sezione CV, tipografia, prestazioni
+
+Lavori chiesti a Fase 4 conclusa, tutti verificati in locale sui dati veri.
+
+- [x] **4b.1** **Sezione CV** (`/cv`): quale CV è caricato, sostituzione, rimozione con
+      conferma digitata, e download dell'originale via signed URL.
+- [x] **4b.2** **Editor del `MasterProfile`**: contatti, presentazione, esperienze con i
+      punti scomposti in ACR, formazione, progetti, certificazioni, competenze, lingue.
+      Aggiunta, modifica ed eliminazione di ogni voce, con validazione Zod che rispecchia
+      il Pydantic del worker — il round trip dashboard → JSONB → `model_validate` è
+      stato verificato sul profilo vero.
+- [x] **4b.3** **Scala tipografica ridefinita** (~+7% su ogni gradino, interlinee
+      rialzate) e tabella respirabile: padding orizzontale su ogni cella, larghezza
+      minima che fa scorrere invece di comprimere, numeri in monospaziato a larghezza
+      fissa. Il tema scuro ora segue davvero il sistema: la variante `dark:` rispondeva
+      a una classe che nessuno applicava.
+- [x] **4b.4** **Dettaglio annuncio come rotta intercettata** (`/annuncio/<id>` +
+      slot `@drawer`): aprire un annuncio non rinaviga più la lista, quindi non
+      riesegue le sue tre query. Con `loading.tsx` la rotta torna anche prefetchabile.
+- [x] **4b.5** Colonna **Fonte** con il nome del portale (`publisher`) invece dello slug
+      dell'adapter, filtro per portale, e `jsearch` acceso.
+
+---
+
 ## Fase 5 — Ponte UI verso worker · 0.5 gg
 
-- [ ] **5.1** Tabella `task` e enum dei tipi: `generate_cv`, `apply`, `run_pipeline`, `reparse_profile`
-- [ ] **5.2** Consumer nel worker con `FOR UPDATE SKIP LOCKED`, polling ogni 30 s, retry ed errori persistiti
-- [ ] **5.3** `worker_heartbeat` e indicatore **online/offline** in testata alla dashboard
-- [ ] **5.4** Componente di progresso task in UI: in coda / in corso / fatto / errore
+- [x] **5.1** Tabella `task` e enum dei tipi: `generate_cv`, `apply`, `run_pipeline`, `reparse_profile`
+- [x] **5.2** Consumer nel worker (`jb work`) con `FOR UPDATE SKIP LOCKED`, polling
+      configurabile, retry fino a `max_attempts` ed errori persistiti. Anticipato dalla
+      Fase 5 perché senza di lui il bottone "Sostituisci" della pagina CV accoderebbe
+      un lavoro che nessuno esegue.
+- [x] **5.3** `worker_heartbeat` scritto ogni 30 s dal consumer; l'indicatore in testata
+      c'era già dalla Fase 4 e ora ha qualcosa da leggere.
+- [ ] **5.4** Componente di progresso task in UI: in coda / in corso / fatto / errore.
+      *Parziale:* la pagina CV mostra già lo stato del `reparse_profile` in corso; manca
+      il componente generico e il bottone "Aggiorna adesso" che accoda `run_pipeline`.
 
 **Verifica:** dal telefono premi "Aggiorna adesso"; a worker acceso il task viene raccolto entro 30 s e la UI segue l'avanzamento; a worker spento il task resta in coda e parte da solo al riavvio.
 

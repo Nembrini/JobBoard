@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 
 import { SORTS, WORK_MODES, type MatchFilters, type Sort } from "@/lib/filters";
-import { WORK_MODE_LABEL } from "@/lib/format";
+import { formatSource, WORK_MODE_LABEL } from "@/lib/format";
 
 /**
  * La barra dei filtri.
@@ -21,7 +21,11 @@ export function FilterBar({
   total,
 }: {
   filters: MatchFilters;
-  options: { countries: string[]; sources: { adapter: string; displayName: string }[] };
+  options: {
+    countries: string[];
+    sources: { adapter: string; displayName: string }[];
+    publishers: string[];
+  };
   total: number;
 }) {
   const router = useRouter();
@@ -54,6 +58,7 @@ export function FilterBar({
     filters.workModes.length +
     filters.countries.length +
     filters.sources.length +
+    filters.publishers.length +
     (filters.minScore > 0 ? 1 : 0) +
     (filters.onlyNew ? 1 : 0) +
     (filters.hideSeen ? 1 : 0) +
@@ -66,12 +71,12 @@ export function FilterBar({
           type="button"
           onClick={() => setAperto((v) => !v)}
           aria-expanded={aperto}
-          className="border-input hover:bg-accent inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-medium"
+          className="border-input hover:bg-accent inline-flex h-10 items-center gap-2 rounded-lg border px-3.5 font-medium"
         >
           <SlidersHorizontal className="size-4" />
           Filtri
           {attivi > 0 ? (
-            <span className="bg-primary text-primary-foreground grid size-5 place-items-center rounded-full text-[11px]">
+            <span className="num bg-primary text-primary-foreground grid size-5 place-items-center rounded-full text-xs">
               {attivi}
             </span>
           ) : null}
@@ -91,7 +96,9 @@ export function FilterBar({
         </Toggle>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-muted-foreground hidden text-sm sm:inline">{total} annunci</span>
+          <span className="text-muted-foreground hidden text-sm sm:inline">
+            <span className="num">{total}</span> annunci
+          </span>
           <label className="sr-only" htmlFor="ordina">
             Ordina per
           </label>
@@ -99,7 +106,7 @@ export function FilterBar({
             id="ordina"
             value={filters.sort}
             onChange={(e) => aggiorna((p) => p.set("sort", e.target.value))}
-            className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
+            className="border-input bg-background h-10 rounded-lg border px-2.5 text-sm"
           >
             {SORTS.map((s) => (
               <option key={s} value={s}>
@@ -152,9 +159,24 @@ export function FilterBar({
             </Gruppo>
           ) : null}
 
+          {options.publishers.length > 0 ? (
+            <Gruppo titolo="Portale">
+              {options.publishers.map((p) => (
+                <Chip
+                  key={p}
+                  attivo={filters.publishers.includes(p)}
+                  onClick={() => alterna("pub", p)}
+                >
+                  {formatSource(p)}
+                </Chip>
+              ))}
+            </Gruppo>
+          ) : null}
+
           <div className="space-y-2">
-            <label htmlFor="soglia" className="text-muted-foreground text-xs font-medium">
-              Punteggio minimo: <span className="text-foreground">{filters.minScore}</span>
+            <label htmlFor="soglia" className="text-muted-foreground text-sm font-medium">
+              Punteggio minimo:{" "}
+              <span className="num text-foreground">{filters.minScore}</span>
             </label>
             <input
               id="soglia"
@@ -175,7 +197,7 @@ export function FilterBar({
             <button
               type="button"
               onClick={() => startTransition(() => router.push(pathname, { scroll: false }))}
-              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm"
             >
               <X className="size-3.5" />
               Azzera i filtri
@@ -201,8 +223,10 @@ function toggle(params: URLSearchParams, chiave: string) {
 function Gruppo({ titolo, children }: { titolo: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
-      <p className="text-muted-foreground text-xs font-medium">{titolo}</p>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
+      <p className="text-muted-foreground text-xs font-medium tracking-[0.06em] uppercase">
+        {titolo}
+      </p>
+      <div className="flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }
@@ -221,7 +245,7 @@ function Chip({
       type="button"
       onClick={onClick}
       aria-pressed={attivo}
-      className={`h-7 rounded-full border px-3 text-xs font-medium transition-colors ${
+      className={`h-8 rounded-full border px-3.5 text-sm font-medium transition-colors ${
         attivo
           ? "border-primary bg-primary text-primary-foreground"
           : "border-input hover:bg-accent"
@@ -246,7 +270,7 @@ function Toggle({
       type="button"
       onClick={onClick}
       aria-pressed={attivo}
-      className={`h-9 rounded-lg border px-3 text-sm font-medium transition-colors ${
+      className={`h-10 rounded-lg border px-3.5 font-medium transition-colors ${
         attivo ? "border-primary bg-primary text-primary-foreground" : "border-input hover:bg-accent"
       }`}
     >

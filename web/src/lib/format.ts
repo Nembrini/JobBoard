@@ -124,6 +124,48 @@ export function formatDate(value: Date | string | null): string {
   return new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short" }).format(data);
 }
 
+/**
+ * Il nome di una fonte, come va scritto in tabella.
+ *
+ * Arriva o come slug di un adapter (`greenhouse`) o come publisher dichiarato
+ * da un aggregatore, che è testo libero: lo stesso portale può presentarsi come
+ * `LinkedIn`, `linkedin.com` o `www.linkedin.com` a seconda di chi lo riporta.
+ * Tre pastiglie diverse per lo stesso sito farebbero sembrare tre fonti quello
+ * che è uno. Qui si uniformano i portali riconosciuti; tutti gli altri passano
+ * come sono, perché inventare una maiuscola su un dominio sconosciuto è un modo
+ * silenzioso di alterare un dato.
+ */
+const SOURCE_LABEL: Record<string, string> = {
+  linkedin: "LinkedIn",
+  indeed: "Indeed",
+  glassdoor: "Glassdoor",
+  monster: "Monster",
+  ziprecruiter: "ZipRecruiter",
+  infojobs: "InfoJobs",
+  stepstone: "StepStone",
+  welcometothejungle: "Welcome to the Jungle",
+  adzuna: "Adzuna",
+  jooble: "Jooble",
+  jsearch: "Google Jobs",
+  arbeitnow: "Arbeitnow",
+  remotive: "Remotive",
+  remoteok: "RemoteOK",
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  ashby: "Ashby",
+  workable: "Workable",
+};
+
+export function formatSource(value: string): string {
+  const chiave = value
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\.(com|it|de|nl|es|fr|co\.uk|org|io|jobs|careers)$/, "")
+    .replace(/[^a-z0-9]/g, "");
+  return SOURCE_LABEL[chiave] ?? value.trim();
+}
+
 /** Gli ATS su cui la Fase 7 saprà inviare la candidatura da sola. */
 const TIER_A = new Set(["greenhouse", "lever", "ashby", "workable"]);
 

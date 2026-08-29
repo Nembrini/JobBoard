@@ -80,12 +80,23 @@ export type MatchPage = {
  * della Fase 2 ha risolto a monte.
  */
 const sourcesAgg = sql<string[]>`coalesce(
-  (select array_agg(distinct ${source.adapter})
+  (select array_agg(distinct coalesce(nullif(btrim(${jobSourceLink.publisher}), ''), ${source.adapter}))
      from ${jobSourceLink}
      join ${source} on ${source.id} = ${jobSourceLink.sourceId}
     where ${jobSourceLink.jobId} = ${job.id}),
   '{}'
 )`;
+
+/**
+ * Perché `publisher` prima di `adapter`.
+ *
+ * Adzuna, Jooble e JSearch non pubblicano niente: ripubblicano. Scrivere
+ * "jsearch" nella colonna Fonte vuol dire mostrare il nome del tubo invece di
+ * quello della sorgente, e la sorgente è il dato che si guarda davvero: da
+ * LinkedIn ci si candida in un modo, da una board Greenhouse in un altro. Le
+ * fonti che pubblicano in proprio non hanno publisher, e lì resta il nome
+ * dell'adapter, che è quello giusto.
+ */
 
 function whereFor(filters: MatchFilters) {
   const conditions = [
@@ -109,6 +120,18 @@ function whereFor(filters: MatchFilters) {
         join ${source} on ${source.id} = ${jobSourceLink.sourceId}
        where ${jobSourceLink.jobId} = ${job.id}
          and ${inArray(source.adapter, filters.sources)}
+    )`);
+  }
+
+  // Filtro per portale, separato da quello per adapter perché risponde a una
+  // domanda diversa: "solo LinkedIn" invece di "solo quello che passa da
+  // JSearch". Le due cose coincidono finché un solo aggregatore indicizza un
+  // portale, e smettono di coincidere appena ne arriva un secondo.
+  if (filters.publishers.length) {
+    conditions.push(sql`exists (
+      select 1 from ${jobSourceLink}
+       where ${jobSourceLink.jobId} = ${job.id}
+         and ${inArray(jobSourceLink.publisher, filters.publishers)}
     )`);
   }
 
@@ -258,7 +281,7 @@ export async function setMatchStatus(matchId: number, status: MatchStatus) {
 export async function getFilterOptions() {
   await guard();
 
-  const [countries, sources] = await Promise.all([
+  const [countries, sources, publishers] = await Promise.all([
     getDb()
       .selectDistinct({ country: job.country })
       .from(match)
@@ -270,11 +293,23 @@ export async function getFilterOptions() {
       .from(source)
       .innerJoin(jobSourceLink, eq(jobSourceLink.sourceId, source.id))
       .orderBy(asc(source.adapter)),
+    // I portali più frequenti, non tutti: gli aggregatori ne riportano decine
+    // con un annuncio a testa, e una barra di filtri con settanta pastiglie non
+    // si legge. Chi ne ha almeno tre è un portale su cui vale la pena filtrare.
+    getDb()
+      .select({ publisher: jobSourceLink.publisher, n: count() })
+      .from(jobSourceLink)
+      .where(isNotNull(jobSourceLink.publisher))
+      .groupBy(jobSourceLink.publisher)
+      .having(sql`count(*) >= 3`)
+      .orderBy(desc(count()))
+      .limit(12),
   ]);
 
   return {
     countries: countries.map((r) => r.country!).filter(Boolean),
     sources,
+    publishers: publishers.map((r) => r.publisher!).filter(Boolean),
   };
 }
 

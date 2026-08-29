@@ -57,7 +57,9 @@ export function RowActions({
   }
 
   const inShortlist = locale === "shortlist";
-  const dimensione = compact ? "size-8" : "size-9";
+  // Bersagli da dito: 36px stretti e 40px comodi. Sotto i 36 su un telefono
+  // si sbaglia bottone, e qui uno dei tre nasconde l'annuncio.
+  const dimensione = compact ? "size-9" : "size-10";
 
   return (
     <div className="flex items-center gap-1">
@@ -104,7 +106,7 @@ export function RowActions({
       </a>
 
       {errore ? (
-        <span role="alert" className="text-destructive text-xs">
+        <span role="alert" className="text-destructive text-sm">
           non salvato
         </span>
       ) : null}

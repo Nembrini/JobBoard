@@ -24,6 +24,8 @@ export type MatchFilters = {
   workModes: WorkMode[];
   countries: string[];
   sources: string[];
+  /** Il portale su cui l'annuncio e' pubblicato: "LinkedIn", "hireskys.com". */
+  publishers: string[];
   /** Solo quelli mai aperti. */
   onlyNew: boolean;
   /** Nasconde quelli già guardati, tenendo shortlist e candidature. */
@@ -40,6 +42,7 @@ export const DEFAULT_FILTERS: MatchFilters = {
   workModes: [],
   countries: [],
   sources: [],
+  publishers: [],
   onlyNew: false,
   hideSeen: false,
   onlyShortlist: false,
@@ -67,6 +70,13 @@ export function parseFilters(params: RawParams): MatchFilters {
     sources: list(params.source)
       .filter((s) => /^[a-z0-9_-]{1,64}$/.test(s))
       .slice(0, 20),
+    // I nomi dei portali arrivano dalle API di terzi, quindi non hanno una
+    // forma garantita come gli slug degli adapter: si limitano lunghezza e
+    // quantita' e si lascia fare il resto alla query parametrizzata.
+    publishers: list(params.pub)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0 && p.length <= 120)
+      .slice(0, 20),
     onlyNew: params.new === "1",
     hideSeen: params.unseen === "1",
     onlyShortlist: params.shortlist === "1",
@@ -86,6 +96,7 @@ export function toSearchParams(filters: Partial<MatchFilters>): URLSearchParams 
   for (const mode of f.workModes) out.append("mode", mode);
   for (const country of f.countries) out.append("country", country);
   for (const source of f.sources) out.append("source", source);
+  for (const publisher of f.publishers) out.append("pub", publisher);
   if (f.onlyNew) out.set("new", "1");
   if (f.hideSeen) out.set("unseen", "1");
   if (f.onlyShortlist) out.set("shortlist", "1");
@@ -104,6 +115,7 @@ export function activeFilterCount(f: MatchFilters): number {
     f.workModes.length +
     f.countries.length +
     f.sources.length +
+    f.publishers.length +
     (f.onlyNew ? 1 : 0) +
     (f.hideSeen ? 1 : 0) +
     (f.onlyShortlist ? 1 : 0)

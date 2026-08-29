@@ -31,16 +31,25 @@ export function Pagination({
   return (
     <nav className="flex items-center justify-between gap-4 pt-2" aria-label="Paginazione">
       <p className="text-muted-foreground text-sm">
-        Pagina {page} di {pageCount} · {total} annunci
+        Pagina <span className="num">{page}</span> di <span className="num">{pageCount}</span> ·{" "}
+        <span className="num">{total}</span> annunci
       </p>
       <div className="flex gap-2">
         {page > 1 ? (
-          <Link href={href(page - 1)} scroll className="border-input hover:bg-accent inline-flex h-9 items-center rounded-lg border px-3 text-sm">
+          <Link
+            href={href(page - 1)}
+            scroll
+            className="border-input hover:bg-accent inline-flex h-10 items-center rounded-lg border px-4 text-sm font-medium"
+          >
             Precedente
           </Link>
         ) : null}
         {page < pageCount ? (
-          <Link href={href(page + 1)} scroll className="border-input hover:bg-accent inline-flex h-9 items-center rounded-lg border px-3 text-sm">
+          <Link
+            href={href(page + 1)}
+            scroll
+            className="border-input hover:bg-accent inline-flex h-10 items-center rounded-lg border px-4 text-sm font-medium"
+          >
             Successiva
           </Link>
         ) : null}
