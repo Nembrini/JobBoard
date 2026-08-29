@@ -96,7 +96,13 @@ class JSearchAdapter(SourceAdapter):
             raise SourceError(f"JSearch non configurato: manca {', '.join(missing)}")
 
         budget = int(self.config.get("daily_budget", self.default_daily_budget or 6))
-        spent = 0
+        # Si contano le richieste **davvero partite**, non i giri di ciclo. La
+        # differenza sono i retry: un 429 o un 5xx fa ripartire la chiamata, e
+        # quella seconda richiesta consuma un credito esattamente come la prima.
+        # Con sei giri di ciclo se ne sono viste sette partire, cioe' un credito
+        # in piu' di quelli messi in conto — su una quota di ~200 al mese, un
+        # errore che si accumula.
+        inizio = http.calls
 
         # Le combinazioni sono generate parola-per-parola e poi paese-per-paese, in
         # quest'ordine: la prima parola chiave è quella che descrive meglio il
@@ -104,14 +110,13 @@ class JSearchAdapter(SourceAdapter):
         # budget finisca.
         for keyword in query.keywords:
             for country in query.countries:
-                if spent >= budget:
+                if http.calls - inizio >= budget:
                     log.warning(
                         "budget JSearch esaurito (%d chiamate): saltate le ricerche "
                         "rimanenti, riprendono domani",
                         budget,
                     )
                     return
-                spent += 1
                 yield from self._search(http, keyword, country, query)
 
     def http_headers(self) -> dict[str, str]:
