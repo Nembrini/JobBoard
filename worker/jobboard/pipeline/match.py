@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -32,6 +32,7 @@ from ..schemas import MasterProfile
 from . import filters
 from .criteria import MatchCriteria, load_criteria
 from .filters import FilterResult, Rejection
+from .progress import Progress, avanza
 from .rank import Ranked, ensure_embeddings, rank
 
 log = logging.getLogger(__name__)
@@ -42,10 +43,6 @@ log = logging.getLogger(__name__)
 #: ritmo sotto le 15 richieste al minuto e allungano la run di due minuti, che
 #: per un processo notturno non è un costo.
 MIN_SECONDS_BETWEEN_CALLS = 4.0
-
-#: Callback opzionale per la barra di avanzamento della dashboard (Fase 5):
-#: percentuale e messaggio.
-Progress = Callable[[int, str], None]
 
 
 class MatchingError(RuntimeError):
@@ -116,7 +113,7 @@ def run_matching(
     for avviso in criteri.inactive:
         log.warning("filtro inattivo — %s", avviso)
 
-    _report(progress, 5, "filtri")
+    avanza(progress, 5, "filtri")
     candidati = filters.candidates(session, rescore=rescore, limit=limit)
     report.filtered = filters.apply_filters(candidati, criteri)
     log.info(
@@ -127,11 +124,11 @@ def run_matching(
     )
 
     if report.filtered.passed:
-        _report(progress, 20, "embedding")
+        avanza(progress, 20, "embedding")
         embedder = embedder or get_embedder()
         report.embedded = ensure_embeddings(session, report.filtered.passed, embedder)
 
-        _report(progress, 35, "stadio 1")
+        avanza(progress, 35, "stadio 1")
         report.ranked = rank(report.filtered.passed, profilo, vettore)
 
     quanti = top_n if top_n is not None else criteri.stage2_top_n
@@ -140,11 +137,11 @@ def run_matching(
     if use_llm and finalisti:
         _run_stage2(report, finalisti, profilo, settings, provider, progress)
 
-    _report(progress, 90, "salvataggio")
+    avanza(progress, 90, "salvataggio")
     if not dry_run:
         report.persisted = persist(session, report)
 
-    _report(progress, 100, "fatto")
+    avanza(progress, 100, "fatto")
     return report
 
 
@@ -166,7 +163,7 @@ def _run_stage2(
             time.sleep(attesa)
         ultima = time.monotonic()
 
-        _report(
+        avanza(
             progress,
             35 + int(55 * indice / len(finalisti)),
             f"stadio 2: {indice}/{len(finalisti)}",
@@ -212,8 +209,12 @@ def _load_reviewed_profile(
         )
     if not stored.reviewed:
         raise MatchingError(
-            "il profilo non è stato confermato. Rileggi data/cv/master_profile.json, "
-            "correggilo e poi esegui: jobboard profile load"
+            # Il messaggio si legge anche in dashboard, da quando la run si può
+            # chiedere con un bottone (Fase 5.4): la prima via indicata è quella
+            # che si può seguire dal telefono, dov'è arrivato l'errore.
+            "il profilo non è stato confermato: rileggilo nella pagina CV e premi "
+            "Conferma, oppure correggi data/cv/master_profile.json ed esegui "
+            "jobboard profile load"
         )
 
     if stored.embedding_is_current(settings.embedding_model):
@@ -234,11 +235,6 @@ def _load_reviewed_profile(
         reviewed=stored.reviewed,
     )
     return stored.profile, vettore
-
-
-def _report(progress: Progress | None, percentuale: int, messaggio: str) -> None:
-    if progress:
-        progress(percentuale, messaggio)
 
 
 # --- persistenza --------------------------------------------------------------

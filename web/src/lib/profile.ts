@@ -1,11 +1,10 @@
 import "server-only";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
-
 import { getDb } from "@/db";
-import { profile, task } from "@/db/schema";
+import { profile } from "@/db/schema";
 import { requireApiSession } from "@/lib/dal";
 import { masterProfileSchema, type MasterProfile } from "@/lib/master-profile";
+import { enqueueTask } from "@/lib/tasks";
 
 /**
  * Lettura e scrittura del profilo dalla dashboard.
@@ -131,56 +130,19 @@ export async function confirmProfile(): Promise<void> {
   if (aggiornate.length === 0) throw new Error("nessun profilo da confermare");
 }
 
-export type TaskInCorso = {
-  id: number;
-  status: "pending" | "running";
-  progress: number;
-  progressMessage: string | null;
-  createdAt: Date;
-};
-
 /**
- * L'ultima rielaborazione del CV ancora aperta.
+ * Accoda la rielaborazione di un CV appena caricato.
  *
- * Serve a dire cosa sta succedendo dopo un caricamento: il file arriva su
- * Supabase in un secondo, ma a estrarlo, strutturarlo con l'LLM e ricalcolare
- * l'embedding è il PC di casa. Senza questo stato la pagina non cambierebbe e
- * il caricamento sembrerebbe non aver funzionato.
+ * La coda vera sta in `tasks.ts`: qui resta solo il nome delle chiavi del
+ * payload, che è l'unica cosa che il worker e la dashboard devono avere uguale
+ * — `handlers.reparse_profile` legge esattamente questi due nomi.
  */
-export async function getReparseTask(): Promise<TaskInCorso | null> {
-  await guard();
-
-  const righe = await getDb()
-    .select({
-      id: task.id,
-      status: task.status,
-      progress: task.progress,
-      progressMessage: task.progressMessage,
-      createdAt: task.createdAt,
-    })
-    .from(task)
-    .where(and(eq(task.taskType, "reparse_profile"), inArray(task.status, ["pending", "running"])))
-    .orderBy(desc(task.createdAt))
-    .limit(1);
-
-  const riga = righe[0];
-  return riga ? ({ ...riga, status: riga.status as "pending" | "running" }) : null;
-}
-
-/** Accoda la rielaborazione di un CV appena caricato. */
 export async function enqueueReparse(storagePath: string, fileName: string): Promise<number> {
-  await guard();
-
-  const create = await getDb()
-    .insert(task)
-    .values({
-      taskType: "reparse_profile",
-      status: "pending",
-      payload: { storage_path: storagePath, file_name: fileName },
-    })
-    .returning({ id: task.id });
-
-  return create[0]!.id;
+  const esito = await enqueueTask("reparse_profile", {
+    storage_path: storagePath,
+    file_name: fileName,
+  });
+  return esito.id;
 }
 
 function descriviErrore(issues: { path: PropertyKey[]; message: string }[]): string {

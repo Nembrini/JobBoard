@@ -27,7 +27,7 @@ sicurezza dell'intera macchina.
 ### Worker
 
 ```bash
-worker\.venv\Scripts\python.exe -m pytest -q              # 281 test, nessun database
+worker\.venv\Scripts\python.exe -m pytest -q              # 290 test, nessun database
 worker\.venv\Scripts\python.exe -m pytest tests/test_jsearch.py -q
 worker\.venv\Scripts\python.exe -m pytest -q -k "publisher"   # un singolo test
 worker\.venv\Scripts\ruff.exe check . --fix

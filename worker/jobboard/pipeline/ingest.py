@@ -28,6 +28,7 @@ from ..sources import SearchQuery, SourceError, all_adapter_classes, get_adapter
 from . import dedup
 from .dedup import JobGroup
 from .normalize import NormalizedJob, job_family, normalize
+from .progress import Progress, avanza, fascia
 from .text import to_signed_64
 
 log = logging.getLogger(__name__)
@@ -224,13 +225,22 @@ def collect(
     sources: Sequence[Source],
     query: SearchQuery,
     settings: Settings | None = None,
+    progress: Progress | None = None,
 ) -> tuple[list[NormalizedJob], list[SourceOutcome]]:
     """Interroga le fonti indicate. Nessuna scrittura sul database."""
     settings = settings or get_settings()
     raccolti: list[NormalizedJob] = []
     esiti: list[SourceOutcome] = []
 
-    for source in sources:
+    for indice, source in enumerate(sources, start=1):
+        # L'avanzamento si annuncia *prima* di interrogare la fonte, non dopo:
+        # quello che serve sapere guardando la dashboard e' su chi si e' fermi,
+        # e una fonte che non risponde tiene il turno per tutto il timeout.
+        avanza(
+            progress,
+            round(100 * (indice - 1) / len(sources)),
+            f"{source.adapter} ({indice}/{len(sources)})",
+        )
         inizio = time.perf_counter()
         esito = SourceOutcome(slug=source.adapter, status=RunStatus.OK)
         try:
@@ -475,6 +485,7 @@ def ingest(
     countries: Sequence[str] | None = None,
     limit: int | None = None,
     dry_run: bool = True,
+    progress: Progress | None = None,
 ) -> IngestReport:
     """Raccolta completa: fonti -> normalizzazione -> dedup -> database."""
     sources = sync_sources(session)
@@ -487,7 +498,10 @@ def ingest(
     query = build_query(session, keywords=keywords, countries=countries, limit=limit)
     report = IngestReport(batch_id=str(uuid.uuid4()), query=query, dry_run=dry_run)
 
-    raccolti, report.outcomes = collect(attive, query, get_settings())
+    raccolti, report.outcomes = collect(
+        attive, query, get_settings(), progress=fascia(progress, 0, 85)
+    )
+    avanza(progress, 90, "unisco i duplicati")
     report.groups = dedup.group(raccolti)
 
     duplicati = len(raccolti) - len(report.groups)

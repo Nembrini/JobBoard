@@ -1,10 +1,13 @@
 import { FilterBar } from "@/components/filter-bar";
 import { MatchTable } from "@/components/match-table";
 import { Pagination } from "@/components/pagination";
+import { RefreshBar } from "@/components/refresh-bar";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/dal";
 import { parseFilters, toSearchParams } from "@/lib/filters";
-import { getCounters, getFilterOptions, listMatches } from "@/lib/queries";
+import { formatAgo } from "@/lib/format";
+import { getCounters, getFilterOptions, getWorkerStatus, listMatches } from "@/lib/queries";
+import { getLatestTask } from "@/lib/tasks";
 
 export const metadata = { title: { absolute: "Job Board" } };
 
@@ -25,10 +28,12 @@ export default async function Dashboard(props: PageProps<"/">) {
 
   const params = await props.searchParams;
   const filters = parseFilters(params);
-  const [pagina, opzioni, contatori] = await Promise.all([
+  const [pagina, opzioni, contatori, worker, raccolta] = await Promise.all([
     listMatches(filters),
     getFilterOptions(),
     getCounters(),
+    getWorkerStatus(),
+    getLatestTask("run_pipeline"),
   ]);
 
   return (
@@ -45,6 +50,13 @@ export default async function Dashboard(props: PageProps<"/">) {
       />
 
       <main className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+        <RefreshBar
+          taskIniziale={raccolta}
+          workerOnline={worker.online}
+          ultimaRun={
+            worker.minutesSinceRun === null ? null : formatAgo(worker.minutesSinceRun)
+          }
+        />
         <FilterBar filters={filters} options={opzioni} total={pagina.total} />
         <MatchTable items={pagina.items} />
         <Pagination

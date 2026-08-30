@@ -54,7 +54,19 @@ HEARTBEAT_SECONDS = 30
 
 
 class TaskError(RuntimeError):
-    """Errore del gestore che vale la pena mostrare in dashboard."""
+    """Errore del gestore che vale la pena mostrare in dashboard.
+
+    ``definitivo`` spegne il ritentativo. Serve perche' il criterio "riprova tre
+    volte" e' giusto solo per i guasti passeggeri: una API che risponde 503 va
+    ritentata, un profilo non ancora confermato no — la seconda e la terza presa
+    troverebbero lo stesso profilo e fallirebbero allo stesso modo. Su
+    ``run_pipeline`` non e' nemmeno gratis: ogni ritentativo rifa' la raccolta,
+    e le chiamate JSearch sono ~200 al mese.
+    """
+
+    def __init__(self, messaggio: str, *, definitivo: bool = False) -> None:
+        super().__init__(messaggio)
+        self.definitivo = definitivo
 
 
 class Contesto:
@@ -137,7 +149,7 @@ def _concludi(task_id: int, risultato: dict[str, Any]) -> None:
         riga.finished_at = utcnow()
 
 
-def _fallisci(task_id: int, errore: str) -> bool:
+def _fallisci(task_id: int, errore: str, *, definitivo: bool = False) -> bool:
     """Segna l'errore. Restituisce ``True`` se il task tornera' in coda."""
     with session_scope() as session:
         riga = session.get(Task, task_id)
@@ -145,7 +157,7 @@ def _fallisci(task_id: int, errore: str) -> bool:
             return False
 
         riga.error = errore[:4000]
-        if riga.attempts < riga.max_attempts:
+        if not definitivo and riga.attempts < riga.max_attempts:
             riga.status = TaskStatus.PENDING
             riga.progress_message = f"tentativo {riga.attempts} fallito, riprova"
             return True
@@ -205,7 +217,15 @@ def run_once(tipi: tuple[TaskType, ...] | None = None) -> bool:
         risultato = gestore(contesto)
     except Exception as exc:
         log.exception("task %d fallito", contesto.task_id)
-        riprova = _fallisci(contesto.task_id, f"{type(exc).__name__}: {exc}")
+        # Il messaggio di un TaskError e' scritto per essere letto in dashboard:
+        # anteporgli "TaskError:" aggiungerebbe al lettore l'unico dettaglio che
+        # non lo riguarda. Per tutto il resto il tipo dell'eccezione e' meta'
+        # della diagnosi e resta.
+        riprova = _fallisci(
+            contesto.task_id,
+            str(exc) if isinstance(exc, TaskError) else f"{type(exc).__name__}: {exc}",
+            definitivo=isinstance(exc, TaskError) and exc.definitivo,
+        )
         log.info("task %d: %s", contesto.task_id, "torna in coda" if riprova else "abbandonato")
     else:
         _concludi(contesto.task_id, risultato)
