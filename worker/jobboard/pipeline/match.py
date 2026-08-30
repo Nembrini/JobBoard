@@ -26,7 +26,7 @@ from ..ai.client import LLMError, LLMProvider, get_provider
 from ..ai.embeddings import Embedder, Vector, get_embedder
 from ..ai.rubric import JobAssessment, assess, weighted_total
 from ..config import Settings, get_settings
-from ..models import Job, JobRequirements, Match
+from ..models import Job, JobRequirements, JobSourceLink, Match, Source
 from ..models.enums import MatchStatus
 from ..schemas import MasterProfile
 from . import filters
@@ -78,6 +78,10 @@ class MatchReport:
     errors: list[tuple[int, str]] = field(default_factory=list)
     dry_run: bool = True
     persisted: int = 0
+    #: Quanti finalisti sono davvero entrati allo Stadio 2 — merito piu' riserva. Non
+    #: coincide sempre con ``stage2_top_n``: la riserva puo' trovare meno annunci a
+    #: budget di quanti gliene chiederebbe, e in quel caso il totale e' piu' basso.
+    stage2_entered: int = 0
 
     @property
     def examined(self) -> int:
@@ -132,7 +136,9 @@ def run_matching(
         report.ranked = rank(report.filtered.passed, profilo, vettore)
 
     quanti = top_n if top_n is not None else criteri.stage2_top_n
-    finalisti = report.ranked[:quanti]
+    budget_ids = _budgeted_source_job_ids(session, [r.job.id for r in report.ranked])
+    finalisti = select_finalists(report.ranked, quanti, criteri.stage2_reserved_floor, budget_ids)
+    report.stage2_entered = len(finalisti)
 
     if use_llm and finalisti:
         _run_stage2(report, finalisti, profilo, settings, provider, progress)
@@ -143,6 +149,61 @@ def run_matching(
 
     avanza(progress, 100, "fatto")
     return report
+
+
+def select_finalists(
+    ranked: Sequence[Ranked], quanti: int, reserved_n: int, budget_ids: set[int]
+) -> list[Ranked]:
+    """I finalisti per lo Stadio 2: merito puro, piu' una riserva per chi ha un tetto.
+
+    Senza riserva un annuncio JSearch/LinkedIn deve superare per punteggio ibrido
+    *l'intero arretrato* non ancora valutato — che le sette fonti senza budget
+    riempiono molto piu' in fretta di quanto JSearch, a sei chiamate al giorno,
+    riesca a competere. Il risultato osservato e' che quasi non ne passa mai
+    nessuno, indipendentemente da quanto siano buoni i suoi annunci.
+
+    La riserva viene **tolta** dal tetto giornaliero, non aggiunta sopra: il costo di
+    una run resta prevedibile — sempre al piu' ``quanti`` chiamate LLM, mai di piu'.
+    Se in coda ci sono meno annunci a budget di quanti la riserva ne chiederebbe, si
+    prende quel che c'e': non si inventano posti per arrivare al numero.
+
+    Un annuncio a budget che vince gia' un posto per merito non consuma la riserva —
+    la riserva serve solo a chi altrimenti resterebbe fuori.
+    """
+    if reserved_n <= 0 or not budget_ids:
+        return list(ranked[:quanti])
+
+    merito = list(ranked[: max(quanti - reserved_n, 0)])
+    scelti = {r.job.id for r in merito}
+
+    riserva: list[Ranked] = []
+    for r in ranked:
+        if len(riserva) >= reserved_n:
+            break
+        if r.job.id in scelti or r.job.id not in budget_ids:
+            continue
+        riserva.append(r)
+
+    return merito + riserva
+
+
+def _budgeted_source_job_ids(session: Session, job_ids: Sequence[int]) -> set[int]:
+    """Gli id degli annunci arrivati (anche) da una fonte con un tetto di chiamate.
+
+    Il criterio e' "ha un ``daily_call_budget``", non il nome dell'adapter: quando
+    arrivera' una seconda fonte a consumo la riserva la copre da sola, senza
+    toccare :func:`select_finalists`. Un annuncio arrivato anche da una fonte senza
+    tetto conta comunque, perche' la domanda e' "esiste un modo di raccoglierlo che
+    costa un budget", non "arriva *solo* da li'".
+    """
+    if not job_ids:
+        return set()
+    righe = session.execute(
+        select(JobSourceLink.job_id)
+        .join(Source, Source.id == JobSourceLink.source_id)
+        .where(JobSourceLink.job_id.in_(job_ids), Source.daily_call_budget.is_not(None))
+    ).scalars()
+    return set(righe)
 
 
 def _run_stage2(

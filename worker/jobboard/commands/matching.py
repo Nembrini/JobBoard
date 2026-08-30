@@ -118,7 +118,7 @@ def _render_funnel(report: MatchReport) -> None:
     table.add_row("1 · coseno + BM25", str(passati), str(len(report.ranked)), "zero")
     table.add_row(
         "2 · rubrica LLM",
-        str(min(len(report.ranked), report.criteria.stage2_top_n)),
+        str(report.stage2_entered),
         str(len(report.scored)),
         f"{report.llm_calls} chiamate, {report.input_tokens + report.output_tokens} token",
     )
@@ -351,6 +351,13 @@ def edit_criteria(
     top_n: Annotated[
         int | None, typer.Option("--top-n", help="Quanti annunci passano alla rubrica LLM.")
     ] = None,
+    reserved_floor: Annotated[
+        int | None,
+        typer.Option(
+            "--reserved-floor",
+            help="Minimo riservato agli annunci di una fonte a budget (es. JSearch/LinkedIn).",
+        ),
+    ] = None,
     max_age: Annotated[
         int | None, typer.Option("--max-age", help="Eta' massima dell'annuncio in giorni.")
     ] = None,
@@ -383,6 +390,8 @@ def edit_criteria(
             valori["seniority_tolerance"] = tolerance
         if top_n is not None:
             valori["stage2_top_n"] = top_n
+        if reserved_floor is not None:
+            valori["stage2_reserved_floor"] = reserved_floor
         if max_age is not None:
             valori["max_age_days"] = max_age
 
@@ -415,6 +424,7 @@ def edit_criteria(
         table.add_row("RAL minima", str(criteri.min_salary_eur_year or "nessuna"))
         table.add_row("aziende bloccate", ", ".join(sorted(criteri.blocked_companies)) or "nessuna")
         table.add_row("finalisti per la rubrica", str(criteri.stage2_top_n))
+        table.add_row("riserva fonti a budget", str(criteri.stage2_reserved_floor))
         console.print(table)
 
         for avviso in criteri.inactive:

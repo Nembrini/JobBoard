@@ -24,8 +24,8 @@ export async function WorkerStatus() {
       className="text-muted-foreground inline-flex items-center gap-2 text-sm whitespace-nowrap"
       title={
         stato.online
-          ? "Il PC di casa è acceso: CV e candidature partono subito."
-          : "Il PC di casa è spento: i comandi restano in coda e partono al riavvio."
+          ? "Il worker è attivo: CV e candidature partono subito."
+          : "Il worker non risulta attivo (nessun battito recente): i comandi restano in coda finché non riparte."
       }
     >
       <span

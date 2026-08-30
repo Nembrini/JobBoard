@@ -33,7 +33,7 @@ from jobboard.pipeline import rank as rank_mod
 from jobboard.pipeline.bm25 import Bm25, ngrams, tokenize
 from jobboard.pipeline.criteria import MatchCriteria, derive_seniority, experience_months
 from jobboard.pipeline.filters import apply_filters
-from jobboard.pipeline.match import _row, _write_stage1
+from jobboard.pipeline.match import _row, _write_stage1, select_finalists
 from jobboard.pipeline.rank import Ranked
 from jobboard.schemas import Bullet, Contact, Experience, MasterProfile, Project, Skills
 
@@ -455,6 +455,52 @@ def test_rank_skips_jobs_without_an_embedding_instead_of_scoring_them_zero() -> 
     senza = make_job(id=2, embedding=None)
     classifica = rank_mod.rank([con, senza], make_profile(), np.array([1.0, 0.0], dtype=np.float32))
     assert [r.job.id for r in classifica] == [1]
+
+
+# --- riserva per le fonti a budget (Stadio 1 -> 2) ----------------------------
+
+
+def _ranked(*ids: int) -> list[Ranked]:
+    """Una classifica gia' ordinata: id crescente, punteggio ibrido decrescente."""
+    return [Ranked(job=make_job(id=i), semantic=0.0, keyword=0.0, hybrid=float(-i)) for i in ids]
+
+
+def test_select_finalists_without_reserve_behaves_like_a_plain_slice() -> None:
+    assert [r.job.id for r in select_finalists(_ranked(0, 1, 2, 3, 4), 3, 0, set())] == [0, 1, 2]
+
+
+def test_select_finalists_with_no_budgeted_ids_behaves_like_a_plain_slice() -> None:
+    """Una riserva impostata ma senza candidati a budget non cambia nulla."""
+    assert [r.job.id for r in select_finalists(_ranked(0, 1, 2, 3, 4), 3, 2, set())] == [0, 1, 2]
+
+
+def test_select_finalists_reserves_a_floor_for_budgeted_sources() -> None:
+    """Un annuncio a budget fuori dal merito puro entra comunque, grazie alla riserva."""
+    # id 4 e' l'ultimo per punteggio ibrido, l'unico a comparire fra le fonti a budget.
+    scelti = select_finalists(_ranked(0, 1, 2, 3, 4), quanti=3, reserved_n=1, budget_ids={4})
+    assert [r.job.id for r in scelti] == [0, 1, 4]
+
+
+def test_select_finalists_does_not_duplicate_a_budgeted_job_already_on_merit() -> None:
+    """Chi vince gia' un posto per merito non consuma la riserva, e non si duplica."""
+    # id 0 e 1 sono a budget e gia' dentro il merito puro (i primi tre su cinque):
+    # alla riserva non resta nessun candidato a budget da aggiungere.
+    scelti = select_finalists(_ranked(0, 1, 2, 3, 4), quanti=5, reserved_n=2, budget_ids={0, 1})
+    assert [r.job.id for r in scelti] == [0, 1, 2]
+
+
+def test_select_finalists_does_not_pad_when_fewer_budgeted_jobs_exist_than_the_floor() -> None:
+    """La riserva prende quel che c'e', non inventa posti per arrivare al numero."""
+    scelti = select_finalists(_ranked(0, 1, 2, 3, 4), quanti=5, reserved_n=3, budget_ids={4})
+    assert [r.job.id for r in scelti] == [0, 1, 4]
+
+
+def test_select_finalists_never_exceeds_the_total_cap() -> None:
+    """Il costo di una run resta prevedibile: mai piu' di ``quanti`` finalisti."""
+    scelti = select_finalists(
+        _ranked(*range(20)), quanti=10, reserved_n=4, budget_ids=set(range(20))
+    )
+    assert len(scelti) == 10
 
 
 # --- rubrica (Stadio 2) -------------------------------------------------------

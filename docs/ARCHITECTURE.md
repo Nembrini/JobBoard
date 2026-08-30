@@ -182,6 +182,17 @@ codice. `apscheduler` resta come dipendenza dichiarata in `pyproject.toml`, non 
 potrebbe tornare utile per la Fase 8.3 (l'orario del digest email), ma non è più un
 prerequisito per la raccolta giornaliera.
 
+**Il codice pronto non basta se le due attività restano da creare a mano.** Fra Fase
+8.1/8.2 e il primo uso vero è passato del tempo in cui `jb work` non ha mai girato sul PC
+di Filippo — non un difetto del meccanismo, solo due schede di Task Scheduler compilate a
+mano che si rimandano. `setup-scheduler.cmd` alla radice (stesso stile di `jb.cmd`/`web.cmd`:
+niente PowerShell, `%~dp0` per il percorso assoluto, sicuro da rilanciare) crea entrambe le
+attività con `schtasks /create /f`. Resta manuale un solo passo — la spunta "esegui appena
+possibile se un avvio pianificato viene ignorato" — perché `schtasks.exe` da riga di
+comando non la espone: servirebbe un XML di Task Scheduler scritto a mano e non
+verificabile da un sandbox Linux, e un passo in più dichiarato onestamente batte uno
+script che potrebbe fallire in modo poco chiaro sulla macchina di chi lo esegue.
+
 ## 5. Scelte tecniche e motivazioni
 
 ### Next.js invece di Vite/SPA
@@ -522,6 +533,44 @@ non è un costo.
 
 Un annuncio su cui la chiamata fallisce viene registrato in `report.errors` e la run
 prosegue: gli altri trentanove non devono pagare per uno.
+
+#### La riserva per le fonti a budget
+
+**`stage2_top_n` è un tetto condiviso da tutte le fonti insieme, applicato all'intero
+arretrato non ancora valutato — non "quaranta al giorno fra gli annunci di oggi".**
+`filters.candidates()` con `rescore=False` prende ogni annuncio attivo che non ha ancora
+raggiunto lo Stadio 2, a prescindere da quando è stato raccolto; lo Stadio 1 lo ordina per
+punteggio ibrido e i primi `stage2_top_n` — di *tutto* quell'arretrato — passano alla
+rubrica. Con otto fonti registrate e una sola a budget (JSearch, `default_daily_budget =
+6`), le sette senza tetto riempiono l'arretrato molto più in fretta di quanto JSearch
+riesca a portare candidati: i pochi annunci LinkedIn/Indeed che arrivano ogni giorno
+devono competere per un numero fisso di posti contro un arretrato che cresce da fonti
+senza limite, e perdono quasi sempre — indipendentemente da quanto siano buoni.
+
+L'ha scoperto Filippo usando la dashboard per davvero: pochissimi annunci LinkedIn in
+tabella, contro una ricerca manuale su LinkedIn che ne trovava molti di più. Alzare
+`daily_call_budget` di JSearch non avrebbe risolto niente: il collo di bottiglia non era
+quante chiamate JSearch potesse fare, era quanti dei suoi risultati sopravvivevano alla
+competizione collettiva per lo Stadio 2.
+
+`pipeline.match.select_finalists` separa i posti in due gruppi invece di fare uno slice
+ingenuo: `stage2_top_n - stage2_reserved_floor` per merito puro (come prima), e fino a
+`stage2_reserved_floor` riservati ai migliori annunci di una fonte con un
+`daily_call_budget`, presi *dall'arretrato che il merito puro avrebbe scartato* — mai
+aggiunti sopra il tetto. Due proprietà che il codice mantiene di proposito:
+
+- **La riserva è tolta dal totale, non aggiunta.** Il costo di una run resta prevedibile:
+  al più `stage2_top_n` chiamate LLM, mai di più, indipendentemente da quanti annunci a
+  budget ci sono in coda quel giorno.
+- **Non si riempiono posti fittizi.** Se gli annunci a budget in coda sono meno della
+  riserva richiesta, la run ne valuta semplicemente di meno — non si scelgono annunci a
+  caso per arrivare al numero.
+- **Un annuncio a budget che vince già un posto per merito non consuma la riserva.** La
+  riserva serve solo a chi altrimenti resterebbe fuori: JSearch non è penalizzato quando i
+  suoi annunci sono davvero i migliori.
+
+Il criterio è "ha un `daily_call_budget`", non il nome dell'adapter: quando arriverà una
+seconda fonte a consumo la riserva la copre da sola, senza toccare `select_finalists`.
 
 ### 7.4 Taratura dei pesi
 

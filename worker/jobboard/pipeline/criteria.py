@@ -85,8 +85,20 @@ class MatchCriteria:
     #: esclude: la maggioranza degli annunci non la dichiara affatto.
     min_salary_eur_year: int | None = None
 
-    #: Quanti superstiti dello Stadio 1 passano alla rubrica LLM.
-    stage2_top_n: int = 40
+    #: Quanti superstiti dello Stadio 1 passano alla rubrica LLM. E' un tetto unico e
+    #: condiviso da tutte le fonti insieme, applicato all'intero arretrato non ancora
+    #: valutato — non "quaranta al giorno fra gli annunci di oggi". Una fonte a budget
+    #: come JSearch, che porta pochi annunci nuovi ma li aggiunge a un arretrato che le
+    #: fonti senza tetto riempiono molto più in fretta, perde quasi sempre questa
+    #: competizione: da qui ``stage2_reserved_floor``.
+    stage2_top_n: int = 100
+
+    #: Quanti dei posti di cui sopra sono riservati agli annunci arrivati (anche) da una
+    #: fonte con un ``daily_call_budget`` — oggi solo JSearch/LinkedIn — anche quando il
+    #: loro punteggio ibrido da solo non basterebbe a competere con l'arretrato delle
+    #: fonti senza tetto. Tolto dal totale, non aggiunto sopra: il costo di una run resta
+    #: prevedibile. Vedi ``pipeline.match.select_finalists``.
+    stage2_reserved_floor: int = 10
 
     #: Cosa non è stato possibile verificare, per dirlo a voce alta invece di
     #: lasciar credere che il filtro abbia lavorato.
@@ -118,6 +130,7 @@ class MatchCriteria:
             "max_age_days": self.max_age_days,
             "min_salary_eur_year": self.min_salary_eur_year,
             "stage2_top_n": self.stage2_top_n,
+            "stage2_reserved_floor": self.stage2_reserved_floor,
         }
 
 
@@ -194,7 +207,8 @@ def _build(
         ),
         max_age_days=_int(salvati.get("max_age_days"), 45),
         min_salary_eur_year=_optional_int(salvati.get("min_salary_eur_year")),
-        stage2_top_n=_int(salvati.get("stage2_top_n"), 40),
+        stage2_top_n=_int(salvati.get("stage2_top_n"), 100),
+        stage2_reserved_floor=_int(salvati.get("stage2_reserved_floor"), 10),
         inactive=tuple(inattivi),
     )
 
