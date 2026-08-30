@@ -320,13 +320,37 @@ di rete sostituita.
 
 ## Fase 8 — Run giornaliera e notifiche · 1 gg
 
-- [ ] **8.1** APScheduler nel worker: pipeline completa una volta al giorno, a orario configurabile
-- [ ] **8.2** Windows Task Scheduler con "esegui appena possibile se l'esecuzione è stata saltata", per coprire il PC spento
+- [x] **8.1/8.2** Raccolta automatica una volta al giorno, con recupero se il PC era
+      spento all'ora prevista. *Non con APScheduler nel processo*: con **Windows Task
+      Scheduler**, che orchestra due pezzi già scritti per l'occasione —
+      1. `jb work --once` ripetuto ogni minuto, la stessa forma "che userebbe Task
+         Scheduler" già documentata in tre punti del codice (`cli.py`, `queue.py`,
+         `commands/worker.py`) ben prima di questa fase;
+      2. `jb work trigger`, comando nuovo che accoda un `run_pipeline` — la stessa riga
+         che accoda il bottone "Aggiorna adesso" — usando `queue.enqueue_task()`, lo
+         specchio Python di `web/src/lib/tasks.ts::enqueueTask`: stessa deduplica, stesso
+         motivo, cosi' un catch-up dopo il PC spento non raddoppia la raccolta se un run
+         manuale era già in coda.
+
+      Il "recupero se saltata" lo dà gratis l'opzione nativa di Task Scheduler ("esegui
+      appena possibile se un avvio pianificato viene ignorato"): zero codice per quella
+      parte. Risultato pratico identico a quanto descritto qui sopra, con zero dipendenze
+      nuove — `apscheduler` resta in `pyproject.toml` inutilizzato, per ora. Il perché è
+      in `ARCHITECTURE.md`.
 - [ ] **8.3** Digest email HTML via SMTP Gmail, con i nuovi match sopra soglia e link diretto alla riga sul sito Vercel
 - [ ] **8.4** **Toggle notifiche on/off in UI** nella pagina Impostazioni, persistito in `settings`, insieme a soglia e orario
 - [ ] **8.5** Pagina Run History: esiti, conteggi ed errori per fonte
 
-**Verifica:** forzi una run dal telefono e la mail arriva; spegni il toggle e non arriva più.
+**Verifica (8.1/8.2):** eseguita a mano su Postgres locale — `jb work trigger` due volte
+di fila accoda **un solo** `run_pipeline` (la seconda chiamata trova quello in coda,
+`enqueue_task` restituisce `gia_in_coda=True`); `jb work --once` lo prende ed esegue, fino
+alla chiamata LLM (bloccata solo dal proxy di rete del sandbox usato per la verifica, non
+un difetto del meccanismo). `ruff`, `mypy --strict` e la suite (337 test, invariata: la
+funzione richiede un database vero per essere provata, e questo repository non aggiunge
+test a database senza prima costruire la fixture) restano puliti.
+
+**Verifica (8.3-8.5, non ancora fatte):** forzi una run dal telefono e la mail arriva;
+spegni il toggle e non arriva più.
 
 ---
 

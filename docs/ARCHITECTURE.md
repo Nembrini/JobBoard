@@ -157,6 +157,31 @@ lo stesso payload** in `pending` o `running`. Che il payload conti è il punto: 
 in silenzio il CV appena caricato. Il confronto è fra `jsonb`, quindi l'ordine delle
 chiavi non conta.
 
+### La raccolta automatica gira su Task Scheduler, non su APScheduler nel processo
+
+Il piano originale (Fase 8.1) prevedeva un APScheduler interno al worker per la run
+giornaliera. Costruendo la Fase 5 il codice aveva già preso un'altra strada, in tre
+commenti separati (`cli.py`, `queue.py`, `commands/worker.py`): `jb work --once` è
+esplicitamente "la forma che userebbe Task Scheduler", pensato fin dall'inizio per essere
+invocato a ripetizione da uno scheduler esterno invece che restare in ascolto in un
+processo lungo. Un APScheduler nel processo avrebbe duplicato una responsabilità che
+Windows offre già gratis, e in modo più affidabile: sopravvive al riavvio del PC senza che
+nessuna riga di Python debba occuparsene.
+
+Mancava solo un modo per accodare un `run_pipeline` **da fuori**, senza eseguirlo sul
+posto: `jb ingest --commit && jb match --commit` avrebbe fatto il lavoro, ma bypassando la
+coda avrebbe anche bypassato tutto quello che la coda porta con sé — `progress`,
+`worker_heartbeat.last_run_at`, la barra della dashboard. `jb work trigger` chiude quel
+buco in una riga: chiama `queue.enqueue_task()`, lo specchio Python della deduplica appena
+descritta per `enqueueTask`, e lascia che sia `jb work` a eseguire — la stessa strada del
+bottone "Aggiorna adesso", non una nuova.
+
+Il risultato pratico è lo stesso della Fase 8.1/8.2 originale, "esegui appena possibile se
+saltata" compreso — quella parte la dà gratis l'opzione nativa di Task Scheduler, zero
+codice. `apscheduler` resta come dipendenza dichiarata in `pyproject.toml`, non rimossa:
+potrebbe tornare utile per la Fase 8.3 (l'orario del digest email), ma non è più un
+prerequisito per la raccolta giornaliera.
+
 ## 5. Scelte tecniche e motivazioni
 
 ### Next.js invece di Vite/SPA

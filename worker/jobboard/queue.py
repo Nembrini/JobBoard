@@ -105,6 +105,47 @@ def handler(tipo: TaskType) -> Callable[[Handler], Handler]:
     return decoratore
 
 
+# --- accodamento ----------------------------------------------------------------
+
+
+def enqueue_task(
+    session: Session, task_type: TaskType, payload: dict[str, Any] | None = None
+) -> tuple[Task, bool]:
+    """Accoda un task, a meno che uno identico non sia gia' in attesa o in corso.
+
+    Specchio Python di ``web/src/lib/tasks.ts::enqueueTask``: stessa regola,
+    stesso motivo. Chi accoda da qui non e' solo il bottone della dashboard —
+    e' anche ``jb work trigger``, pensato per un trigger giornaliero di Task
+    Scheduler che potrebbe sovrapporsi a un run gia' in corso (un catch-up dopo
+    il PC spento, o un "Aggiorna adesso" premuto a mano lo stesso giorno).
+    Restituisce ``(task, True)`` se ne ha trovato uno esistente invece di
+    inserirne un secondo.
+
+    Il confronto sul payload e' nella ``WHERE``, non fatto in Python dopo aver
+    letto la riga: JSONB in Postgres confronta per struttura, non per byte, e
+    l'uguaglianza a livello di query e' quindi gia' insensibile all'ordine delle
+    chiavi — la stessa proprieta' che il lato web sfrutta con ``::jsonb =``.
+    """
+    payload = payload or {}
+    aperto = session.scalars(
+        select(Task)
+        .where(
+            Task.task_type == task_type,
+            Task.status.in_((TaskStatus.PENDING, TaskStatus.RUNNING)),
+            Task.payload == payload,
+        )
+        .order_by(Task.created_at.desc())
+        .limit(1)
+    ).first()
+    if aperto is not None:
+        return aperto, True
+
+    nuovo = Task(task_type=task_type, status=TaskStatus.PENDING, payload=payload)
+    session.add(nuovo)
+    session.flush()
+    return nuovo, False
+
+
 # --- prelievo -----------------------------------------------------------------
 
 
