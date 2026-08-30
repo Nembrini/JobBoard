@@ -9,8 +9,13 @@ import { listMatches, NotAuthorized } from "@/lib/queries";
  *
  * La dashboard non la usa per il primo caricamento: quello lo fa un server
  * component, che legge dal database senza far fare a Next.js una richiesta HTTP
- * verso sé stesso. Questa rotta serve al drawer, al digest email della Fase 8 e
- * a qualunque client verrà dopo.
+ * verso sé stesso. Questa rotta serve al drawer e a qualunque client verrà dopo.
+ *
+ * **Non al digest email** (Fase 8.3), che pure qui era previsto: le credenziali
+ * SMTP stanno solo in `worker/.env`, non nelle Environment Variables di Vercel,
+ * quindi è il worker a spedirlo — e lo costruisce dai `Match` che ha già in
+ * memoria a fine `run_matching()`, senza bisogno di una richiesta HTTP verso
+ * sé stesso né di autenticarsi con un cookie di sessione che non ha.
  */
 export async function GET(request: NextRequest) {
   try {

@@ -141,6 +141,9 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
     # Import ritardati come sopra: fastembed e il client LLM non devono pesare
     # su un worker che sta solo scrivendo il battito.
     from .config import get_settings
+    from .notify.digest import send_digest
+    from .notify.mailer import MailError
+    from .notify.settings import load_notification_settings
     from .pipeline.ingest import ingest
     from .pipeline.match import MatchingError, run_matching
     from .pipeline.progress import fascia
@@ -170,6 +173,11 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
     try:
         with session_scope() as session:
             valutazione = run_matching(session, dry_run=False, progress=fascia(ctx.avanza, 57, 100))
+            notifiche = load_notification_settings(
+                session,
+                default_threshold=settings.match_threshold,
+                default_hour=settings.daily_run_hour,
+            )
     except MatchingError as exc:
         # Manca il profilo o non e' stato confermato. Il messaggio e' gia'
         # scritto per essere letto da chi guarda la dashboard, e ripetere il
@@ -183,10 +191,30 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
         ) from exc
 
     _segna_run(raccolta.status)
-    return _riepilogo(raccolta, valutazione, settings.match_threshold)
+
+    # Il digest e' un effetto collaterale, non il lavoro: una mail non partita
+    # non deve far fallire un task che ha gia' salvato raccolta e punteggi. Vale
+    # lo stesso principio di `valutazione.errors` per lo Stadio 2 — si registra
+    # e si va avanti.
+    inviate = 0
+    errore_digest: str | None = None
+    try:
+        digest = send_digest(notifiche, valutazione, settings)
+        inviate = digest.count if digest else 0
+    except MailError as exc:
+        errore_digest = str(exc)
+        log.warning("digest non inviato: %s", exc)
+
+    return _riepilogo(raccolta, valutazione, settings.match_threshold, inviate, errore_digest)
 
 
-def _riepilogo(raccolta: IngestReport, valutazione: MatchReport, soglia: int) -> dict[str, Any]:
+def _riepilogo(
+    raccolta: IngestReport,
+    valutazione: MatchReport,
+    soglia: int,
+    notifica_annunci: int,
+    notifica_errore: str | None,
+) -> dict[str, Any]:
     """Quello che finisce in ``task.result`` e che la dashboard mostra a fine run.
 
     Numeri, non frasi: la frase la compone la UI, che sa quanto spazio ha. Le
@@ -208,6 +236,10 @@ def _riepilogo(raccolta: IngestReport, valutazione: MatchReport, soglia: int) ->
         "chiamate_llm": valutazione.llm_calls,
         "token": valutazione.input_tokens + valutazione.output_tokens,
         "non_valutati": len(valutazione.errors),
+        # Puo' essere 0 anche a notifiche accese: nessun annuncio nuovo sopra
+        # soglia non e' un errore, e' il caso comune di una run tranquilla.
+        "notifica_annunci": notifica_annunci,
+        "notifica_errore": notifica_errore,
     }
 
 

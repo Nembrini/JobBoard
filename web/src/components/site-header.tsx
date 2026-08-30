@@ -5,11 +5,11 @@ import { signOut } from "@/auth";
 import { WorkerStatus } from "@/components/worker-status";
 
 /**
- * La testata, condivisa dalle due sezioni.
+ * La testata, condivisa da tutte le sezioni.
  *
- * Le sezioni sono due e resteranno poche: una barra con due voci, non un menu.
- * Un menu a tendina per due destinazioni nasconde la navigazione dietro un
- * click senza far risparmiare spazio.
+ * Restano poche voci in una barra piatta, non un menu: un menu a tendina per
+ * quattro destinazioni nasconde la navigazione dietro un click senza far
+ * risparmiare spazio davvero.
  *
  * `LinkTab` decide l'aspetto dal `current` che riceve dal server, non da
  * `usePathname`: la voce attiva e' gia' giusta nell'HTML, senza un componente
@@ -19,7 +19,7 @@ export function SiteHeader({
   current,
   subtitle,
 }: {
-  current: "annunci" | "cv";
+  current: "annunci" | "cv" | "impostazioni" | "cronologia";
   subtitle?: React.ReactNode;
 }) {
   return (
@@ -33,6 +33,12 @@ export function SiteHeader({
             </LinkTab>
             <LinkTab href="/cv" active={current === "cv"}>
               CV
+            </LinkTab>
+            <LinkTab href="/cronologia" active={current === "cronologia"}>
+              Cronologia
+            </LinkTab>
+            <LinkTab href="/impostazioni" active={current === "impostazioni"}>
+              Impostazioni
             </LinkTab>
           </nav>
         </div>

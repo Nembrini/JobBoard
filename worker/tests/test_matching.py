@@ -33,7 +33,7 @@ from jobboard.pipeline import rank as rank_mod
 from jobboard.pipeline.bm25 import Bm25, ngrams, tokenize
 from jobboard.pipeline.criteria import MatchCriteria, derive_seniority, experience_months
 from jobboard.pipeline.filters import apply_filters
-from jobboard.pipeline.match import _row, _write_stage1, select_finalists
+from jobboard.pipeline.match import Scored, _new_scored_ids, _row, _write_stage1, select_finalists
 from jobboard.pipeline.rank import Ranked
 from jobboard.schemas import Bullet, Contact, Experience, MasterProfile, Project, Skills
 
@@ -699,3 +699,28 @@ def test_a_new_match_row_is_usable_before_the_flush() -> None:
     nuova = sessione.added[-1]
     assert nuova.reached_stage == 1
     assert nuova.hybrid_score == 0.8
+
+
+def test_new_scored_ids_esclude_chi_aveva_gia_un_match() -> None:
+    """Il digest della Fase 8.3 segnala un annuncio una volta sola.
+
+    Senza questa distinzione un ``--rescore``, che ripassa dalla rubrica anche
+    gli annunci gia' visti, manderebbe una seconda notifica identica alla prima.
+    """
+    scored = [
+        Scored(
+            ranked=Ranked(job=make_job(id=1), semantic=0.9, keyword=1.0, hybrid=0.8),
+            assessment=None,  # type: ignore[arg-type]
+            score=80,
+            model="test",
+        ),
+        Scored(
+            ranked=Ranked(job=make_job(id=2), semantic=0.9, keyword=1.0, hybrid=0.8),
+            assessment=None,  # type: ignore[arg-type]
+            score=70,
+            model="test",
+        ),
+    ]
+    assert _new_scored_ids(scored, pre_existing_ids={1}) == {2}
+    assert _new_scored_ids(scored, pre_existing_ids=set()) == {1, 2}
+    assert _new_scored_ids(scored, pre_existing_ids={1, 2}) == set()
