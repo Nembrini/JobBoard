@@ -65,7 +65,12 @@ class SalaryPeriod(StrEnum):
 class AtsType(StrEnum):
     """Applicant Tracking System che ospita il form di candidatura.
 
-    I primi quattro abilitano il Tier A (invio automatico via API pubblica).
+    I primi quattro abilitano il Tier A: selettori dedicati invece
+    dell'euristica generica del Tier B. **Non un invio via API**, come diceva
+    il piano originale — la Fase 7 l'ha scoperto non praticabile a esecuzione
+    (vedi ARCHITECTURE.md, decisione "Tier A senza API diretta"): Greenhouse
+    protegge il form pubblico con reCAPTCHA Enterprise, e Lever/Workable
+    richiedono una chiave API che solo il datore di lavoro puo' generare.
     """
 
     GREENHOUSE = "greenhouse"
@@ -95,16 +100,28 @@ class MatchStatus(StrEnum):
 
 
 class ApplicationTier(StrEnum):
-    A_AUTO = "a_auto"  # POST diretto all'API dell'ATS
-    B_ASSISTED = "b_assisted"  # Playwright headful, submit lasciato all'utente
-    C_MANUAL = "c_manual"  # solo apertura URL
+    #: ATS noto (Greenhouse/Lever/Ashby/Workable): Playwright headful con
+    #: selettori dedicati per quella piattaforma. **Si ferma comunque prima del
+    #: submit** — vedi la nota su ``TIER_A_ATS`` per il motivo del cambio rispetto
+    #: al piano originale ("POST diretto all'API").
+    A_AUTO = "a_auto"
+    #: ATS sconosciuto ma con un ``apply_url`` diretto: stesso Playwright
+    #: headful, precompilazione euristica su label e attributi invece di
+    #: selettori dedicati. Ferma prima del submit.
+    B_ASSISTED = "b_assisted"
+    C_MANUAL = "c_manual"  # nessun apply_url diretto: solo apertura dell'URL
 
 
 class ApplicationStatus(StrEnum):
     DRAFT = "draft"  # CV non ancora generato
     CV_READY = "cv_ready"  # CV generato, in attesa di approvazione
     APPROVED = "approved"  # approvato, in coda per l'invio
-    NEEDS_HUMAN = "needs_human"  # Tier B: form precompilato, serve il tuo click
+    #: Form precompilato e aperto nel browser sul PC (Tier A o B), oppure solo
+    #: il link pronto da aprire (Tier C): serve il tuo click per spedirla
+    #: davvero. Nessun tier la supera da solo — vedi ``apply/router.py``.
+    NEEDS_HUMAN = "needs_human"
+    #: Segnata a mano dalla dashboard dopo che l'hai spedita tu nel browser.
+    #: Nessun codice del worker scrive questo stato da solo.
     SUBMITTED = "submitted"
     FAILED = "failed"
     WITHDRAWN = "withdrawn"
@@ -130,6 +147,14 @@ class ApplicationEventType(StrEnum):
     CREATED = "created"
     CV_GENERATED = "cv_generated"
     APPROVED = "approved"
+    #: Il worker ha aperto il form (o l'URL, per il Tier C) e si e' fermato
+    #: prima del submit: e' il momento in cui la candidatura passa a
+    #: ``NEEDS_HUMAN``.
+    PREPARED = "prepared"
+    #: Il tentativo di preparare il form e' fallito (pagina non raggiungibile,
+    #: campi non trovati). Non e' un ``submit_failed``: non si e' nemmeno
+    #: arrivati a un form da compilare.
+    PREPARE_FAILED = "prepare_failed"
     SUBMITTED = "submitted"
     SUBMIT_FAILED = "submit_failed"
     EMAIL_RECEIVED = "email_received"

@@ -1,9 +1,16 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, count, eq, ne } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { application, type ApplicationStatus } from "@/db/schema";
+import {
+  application,
+  applicationEvent,
+  job,
+  match,
+  type ApplicationStatus,
+  type ApplicationTier,
+} from "@/db/schema";
 import { requireApiSession } from "@/lib/dal";
 import { getProfile } from "@/lib/profile";
 
@@ -152,6 +159,103 @@ export async function getApplicationStatus(matchId: number): Promise<Application
     .limit(1);
 
   return righe[0]?.status ?? null;
+}
+
+export type StatoInvio = {
+  status: ApplicationStatus;
+  tier: ApplicationTier;
+  /** `true` quando questa sarebbe la prima candidatura verso questa azienda:
+   *  la UI mostra il dialogo di conferma solo in questo caso. */
+  primaVoltaPerQuestaAzienda: boolean;
+};
+
+/**
+ * Quello che serve alla UI per decidere quale bottone mostrare e se chiedere
+ * conferma prima di accodare la preparazione (Fase 7.5): stato, tier deciso
+ * dal worker all'ultima preparazione, e se questa sarebbe la prima
+ * candidatura verso l'azienda dell'annuncio.
+ */
+export async function getStatoInvio(matchId: number): Promise<StatoInvio | null> {
+  await guard();
+
+  const righe = await getDb()
+    .select({
+      status: application.status,
+      tier: application.tier,
+      applicationId: application.id,
+      companyNormalized: job.companyNormalized,
+    })
+    .from(application)
+    .innerJoin(match, eq(match.id, application.matchId))
+    .innerJoin(job, eq(job.id, match.jobId))
+    .where(eq(application.matchId, matchId))
+    .limit(1);
+
+  const riga = righe[0];
+  if (!riga) return null;
+
+  const precedenti = await getDb()
+    .select({ n: count() })
+    .from(application)
+    .innerJoin(match, eq(match.id, application.matchId))
+    .innerJoin(job, eq(job.id, match.jobId))
+    .where(
+      and(
+        eq(job.companyNormalized, riga.companyNormalized),
+        ne(application.id, riga.applicationId),
+        ne(application.status, "draft"),
+      ),
+    );
+
+  return {
+    status: riga.status,
+    tier: riga.tier,
+    primaVoltaPerQuestaAzienda: (precedenti[0]?.n ?? 0) === 0,
+  };
+}
+
+/**
+ * Segna la candidatura come spedita **dopo che l'hai spedita tu**, cliccando
+ * invia nel browser che il worker ha aperto e precompilato. Nessun codice
+ * automatico chiama questa funzione: è l'unico punto che scrive
+ * `application.status = 'submitted'` e `match.status = 'applied'`, ed è
+ * apposta un click esplicito e non un effetto collaterale di un'altra azione.
+ *
+ * Solo da `needs_human`: da `draft` o `approved` vorrebbe dire dichiarare
+ * spedito qualcosa che il worker non ha nemmeno preparato, da uno stato
+ * terminale riscriverebbe una storia già chiusa.
+ */
+export async function markApplicationSubmitted(
+  matchId: number,
+): Promise<ApplicationStatus | null> {
+  await guard();
+
+  return getDb().transaction(async (tx) => {
+    const righe = await tx
+      .select({ id: application.id, status: application.status, jobId: match.jobId })
+      .from(application)
+      .innerJoin(match, eq(match.id, application.matchId))
+      .where(eq(application.matchId, matchId))
+      .limit(1);
+
+    const riga = righe[0];
+    if (!riga || riga.status !== "needs_human") return null;
+
+    const adesso = new Date();
+    await tx
+      .update(application)
+      .set({ status: "submitted", submittedAt: adesso, updatedAt: adesso })
+      .where(eq(application.id, riga.id));
+    await tx.insert(applicationEvent).values({
+      applicationId: riga.id,
+      eventType: "submitted",
+      occurredAt: adesso,
+      note: "confermato dalla dashboard dopo l'invio nel browser",
+    });
+    await tx.update(match).set({ status: "applied", updatedAt: adesso }).where(eq(match.id, matchId));
+
+    return "submitted";
+  });
 }
 
 function stringhe(valore: unknown): string[] {

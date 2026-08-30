@@ -96,7 +96,8 @@ export async function MatchDetail({
           </a>
           {isAutoApplicable(m.atsType) ? (
             <p className="text-muted-foreground mt-2 text-sm">
-              Ospitato su {m.atsType}: dalla Fase 7 la candidatura potrà partire da sola.
+              Ospitato su {m.atsType}: il worker sa precompilare il form da solo, l&apos;invio
+              resta sempre un tuo click.
             </p>
           ) : null}
         </div>

@@ -184,7 +184,9 @@ export function formatSource(value: string): string {
   return SOURCE_LABEL[chiave] ?? value.trim();
 }
 
-/** Gli ATS su cui la Fase 7 saprà inviare la candidatura da sola. */
+/** Gli ATS su cui il worker precompila il form con selettori dedicati (Tier A).
+ *  L'invio resta comunque sempre un click nel browser, mai automatico — nessuno
+ *  dei quattro lo permette a un candidato esterno, vedi ARCHITECTURE.md §10. */
 const TIER_A = new Set(["greenhouse", "lever", "ashby", "workable"]);
 
 export function isAutoApplicable(atsType: string): boolean {

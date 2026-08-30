@@ -97,13 +97,13 @@ export function SourceList({ sources, atsType }: { sources: string[]; atsType: s
   );
 }
 
-/** Segnala gli annunci su cui la Fase 7 potrà inviare la candidatura da sola. */
+/** Segnala gli annunci su cui il worker sa precompilare il form da solo (Tier A). */
 export function AutoApplyDot({ atsType }: { atsType: string }) {
   return (
     <span
       className="inline-block size-1.5 shrink-0 rounded-full bg-violet-500"
-      title={`Candidatura automatica possibile via ${atsType}`}
-      aria-label={`Candidatura automatica possibile via ${atsType}`}
+      title={`Form precompilato automaticamente su ${atsType} — l'invio resta sempre un tuo click`}
+      aria-label={`Form precompilato automaticamente su ${atsType}, invio sempre manuale`}
     />
   );
 }

@@ -8,7 +8,7 @@ Ogni giorno raccoglie annunci da più portali, li confronta con il tuo CV, li or
 compatibilità — e con un click genera un CV su misura per quel singolo annuncio e invia
 la candidatura.
 
-![Stato](https://img.shields.io/badge/stato-Fase%204%20in%20corso-blue)
+![Stato](https://img.shields.io/badge/stato-Fase%207%20in%20corso-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
@@ -35,7 +35,8 @@ Premendo **Candidati**, il sistema:
 1. legge la job description e ne estrae i requisiti reali
 2. riscrive il tuo CV per quell'annuncio — riordinando e riformulando, **senza inventare nulla**
 3. lo impagina in **una sola pagina**, ATS-friendly, nella lingua dell'annuncio
-4. te lo mostra per approvazione, poi invia la candidatura
+4. te lo mostra per approvazione, poi apre il form di candidatura in un browser sul tuo PC,
+   già compilato — **e si ferma**: l'invio lo premi tu, guardando lo schermo
 
 La RAL viene mostrata solo se l'annuncio la dichiara davvero. Mai stimata e spacciata per certa.
 
@@ -101,8 +102,10 @@ Le funzioni serverless hanno filesystem effimero, bundle limitato a ~250 MB e ti
 pochi minuti. Non ci stanno Playwright/Chromium, il runtime ONNX per gli embedding, né una
 pipeline che macina centinaia di annunci con chiamate LLM.
 
-E l'apply assistito è *headful* per definizione: un browser che devi guardare mentre
-compila un form non può girare su un server.
+E la candidatura è *headful* per definizione, non solo per l'ATS sconosciuto: nessun
+ATS lascia inviare una candidatura via API senza credenziali dell'azienda (Greenhouse
+la blocca perfino con un reCAPTCHA), quindi anche gli ATS "noti" passano dallo stesso
+browser che devi guardare mentre compila un form — che non può girare su un server.
 
 </details>
 
@@ -125,11 +128,11 @@ compila un form non può girare su un server.
 | 1 · Profilo e CV master | ✅ | Parsing PDF/DOCX, `MasterProfile`, risposte ATS, embedding locale |
 | 2 · Ingestione | ✅ | 10 adapter, normalizzazione, parsing RAL, dedup SimHash |
 | 3 · Matching | ✅ | Imbuto a 3 stadi, rubrica pesata, calibrazione dei pesi |
-| 4 · Dashboard | 🔸 | Auth Google, tabella, filtri, drawer — manca il deploy |
-| 5 · Ponte UI↔worker | ⬜ | Coda task, heartbeat, progresso |
-| 6 · Generazione CV | ⬜ | Tailoring ACR, validatore anti-invenzione, fit a una pagina |
-| 7 · Candidatura | ⬜ | Tier A automatico, Tier B assistito, guardrail |
-| 8 · Run giornaliera | ⬜ | Scheduler, digest email, toggle notifiche |
+| 4 · Dashboard | 🔸 | Auth Google, tabella, filtri, drawer — manca il deploy in produzione |
+| 5 · Ponte UI↔worker | ✅ | Coda task, heartbeat, progresso |
+| 6 · Generazione CV | ✅ | Tailoring ACR, validatore anti-invenzione, fit a una pagina |
+| 7 · Candidatura | 🔸 | Router, form precompilato (selettori noti + euristica), guardrail — non ancora provato su un annuncio vero |
+| 8 · Run giornaliera | 🔸 | Raccolta automatica via Task Scheduler — manca digest email e toggle notifiche |
 | 9 · Tracking | ⬜ | Stati, lettura IMAP, classificazione risposte |
 | 10 · Rifinitura | ⬜ | Ricalibrazione, costi API, backup |
 
@@ -200,7 +203,7 @@ jobboard gen-web-schema        # rigenera i tipi TypeScript
 │  │  ├─ pipeline/      ingest · normalize · dedup · enrich · match
 │  │  ├─ ai/            client · embeddings · validator · prompts
 │  │  ├─ cv/            template Jinja2 · render · fit a una pagina
-│  │  ├─ apply/         greenhouse · lever · ashby · workable · assisted
+│  │  ├─ apply/         router tier · piano campi · selettori noti · euristica · browser
 │  │  └─ notify/        digest email · lettura IMAP · classificatore
 │  └─ alembic/
 ├─ web/                 Next.js 16 → Vercel

@@ -28,7 +28,7 @@ dell'intera macchina.
 ### Worker
 
 ```bash
-worker\.venv\Scripts\python.exe -m pytest -q              # 337 test, nessun database
+worker\.venv\Scripts\python.exe -m pytest -q              # 377 test, nessun database
 worker\.venv\Scripts\python.exe -m pytest tests/test_jsearch.py -q
 worker\.venv\Scripts\python.exe -m pytest -q -k "publisher"   # un singolo test
 worker\.venv\Scripts\ruff.exe check . --fix
@@ -54,6 +54,7 @@ fixture.
 .\jb profile import|load|embed|show
 .\jb cv generate <match-id>       # CV su misura; --no-upload lo lascia solo su disco
 .\jb cv check <file.pdf>          # come lo vedrebbe un parser ATS
+.\jb apply send <match-id>        # apre il form nel browser, lo compila, si ferma prima del submit
 ```
 
 **`--dry-run` non prova la scrittura.** Normalizza e stampa, ma non tocca i vincoli di
@@ -193,6 +194,28 @@ pagina. Ogni compressione ripassa dal validatore: una riscrittura è una generaz
 
 Il prompt sta in `ai/prompts/cv_writer.md`, in un file a sé perché si possa sostituire
 senza toccare il codice. Non chiedergli quello che il codice già verifica.
+
+### Candidatura (`worker/jobboard/apply/`)
+
+**Il Tier A non invia via API.** Il piano iniziale lo prevedeva; verificato leggendo la
+documentazione ufficiale prima di scrivere il client: Greenhouse blocca il form pubblico
+con reCAPTCHA Enterprise, Lever/Ashby/Workable richiedono una chiave API che genera solo
+l'azienda, mai il candidato. Tier A e Tier B condividono quindi lo stesso motore —
+Playwright headful sul PC — e **si fermano entrambi prima del submit**: cambia solo se il
+form si compila con selettori dedicati a un ATS noto (`selectors.py`) o con un'euristica
+su label e attributi (`heuristics.py`). Il perché per esteso, con le fonti delle quattro
+API, è in `docs/ARCHITECTURE.md` §10. Non riproporre il piano originale senza aver riletto
+quella sezione.
+
+Conseguenza sugli stati: nessun codice del worker scrive mai `ApplicationStatus.SUBMITTED`.
+Lo scrive un click esplicito in dashboard (`markApplicationSubmitted`, chiamata solo da
+`segnaCandidaturaInviata` in `web/src/lib/cv-actions.ts`), **dopo** che l'invio è avvenuto
+davvero nel browser. Il worker porta una candidatura solo fino a `needs_human`.
+
+I guardrail (`guardrails.py`) sono decisioni pure su numeri già contati, non query: il cap
+giornaliero conta le candidature **preparate**, non quelle spedite — è l'apertura di un
+browser verso un sito di terzi l'azione automatica da limitare, non un invio che ormai non
+succede mai senza un click umano.
 
 ## Lato web (`web/`)
 
