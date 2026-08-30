@@ -38,27 +38,27 @@ type Testi = {
 const TESTI: Record<TaskType, Testi> = {
   run_pipeline: {
     inCoda: "Raccolta in coda: il worker la prende entro mezzo minuto.",
-    inCodaOffline: "Raccolta in coda. Il PC di casa è spento: parte da sola alla riaccensione.",
+    inCodaOffline: "Raccolta in coda. Il worker non risulta attivo: parte da sola non appena riparte.",
     inCorso: "Raccolta in corso.",
   },
   reparse_profile: {
     inCoda: "In coda: il worker rilegge il CV entro mezzo minuto.",
-    inCodaOffline: "In coda. Il PC di casa è spento: parte da solo alla riaccensione.",
+    inCodaOffline: "In coda. Il worker non risulta attivo: parte da solo non appena riparte.",
     inCorso: "Il worker sta rileggendo il CV.",
   },
   generate_cv: {
     inCoda: "CV su misura in coda.",
-    inCodaOffline: "CV su misura in coda. Il PC di casa è spento: parte alla riaccensione.",
+    inCodaOffline: "CV su misura in coda. Il worker non risulta attivo: parte non appena riparte.",
     inCorso: "Sto generando il CV.",
   },
   apply: {
     inCoda: "Candidatura in coda.",
-    inCodaOffline: "Candidatura in coda. Il PC di casa è spento: parte alla riaccensione.",
+    inCodaOffline: "Candidatura in coda. Il worker non risulta attivo: parte non appena riparte.",
     inCorso: "Invio della candidatura in corso.",
   },
   check_email: {
     inCoda: "Controllo della posta in coda.",
-    inCodaOffline: "Controllo della posta in coda: parte alla riaccensione del PC.",
+    inCodaOffline: "Controllo della posta in coda: parte non appena il worker riparte.",
     inCorso: "Sto leggendo le risposte.",
   },
 };

@@ -116,6 +116,12 @@ raccolti, 154 distinti, 13 chiamate API**, di cui 73 con link ATS diretto.
       migliori su 53 130 combinazioni e **verifica su una metà quello che ha imparato
       sull'altra**, perché sei pesi liberi su trenta esempi trovano sempre qualcosa.
 - [x] **3.6** Comandi `jobboard match`, `jobboard matches list|show|criteria`.
+- [x] **3.7** Riserva per le fonti a budget: `stage2_top_n` 40 → 100, e
+      `stage2_reserved_floor` (default 10) garantisce agli annunci di una fonte con un
+      tetto di chiamate (oggi JSearch/LinkedIn) un minimo di posti allo Stadio 2 anche
+      quando il loro punteggio ibrido da solo non basterebbe a competere con l'arretrato
+      delle fonti senza tetto. La riserva è tolta dal totale, non aggiunta sopra: il costo
+      di una run resta prevedibile.
 
 **Verifica:** eseguita sui 153 annunci in banca dati. L'imbuto ha fatto
 **153 -> 44 -> 40**, gli scarti dello Stadio 0 sono livello 85, età 21, paese 3, e i
@@ -130,6 +136,16 @@ una run completa: **40 chiamate, 101k token, circa 5 minuti**.
 > elencava nessun requisito, e coprire il 100% di zero requisiti è vero quanto è inutile.
 > Quel criterio pesa il 40%. Ora un elenco di requisiti vuoto vale **neutro**, non
 > perfetto, e quell'annuncio è sceso a 25.
+
+> **Il tetto condiviso che teneva fuori LinkedIn (3.7, molto più tardi di questa fase).**
+> Filippo ha segnalato pochissimi annunci LinkedIn in dashboard nonostante una ricerca
+> manuale su LinkedIn stesso ne trovasse molti di più. La causa non era il budget di
+> JSearch (~6 chiamate/giorno, invariato): `stage2_top_n` è un tetto **unico e condiviso
+> da tutte le fonti insieme**, applicato all'intero arretrato non ancora valutato — non
+> "quaranta al giorno fra i nuovi di oggi". JSearch è l'unica delle otto fonti con un
+> `daily_call_budget`; le altre sette non ne hanno, riempiono l'arretrato molto più in
+> fretta, e i pochi annunci LinkedIn perdevano quasi sempre quella competizione. La
+> riserva di 3.7 garantisce un minimo indipendente dal punteggio ibrido.
 
 **Resta aperto:** i punteggi non superano 65 perché `location_fit` e `salary_fit` restano
 neutri finché `candidate_profile.json` non dichiara lingue, autorizzazione al lavoro e
@@ -337,6 +353,18 @@ di rete sostituita.
       parte. Risultato pratico identico a quanto descritto qui sopra, con zero dipendenze
       nuove — `apscheduler` resta in `pyproject.toml` inutilizzato, per ora. Il perché è
       in `ARCHITECTURE.md`.
+
+      **Le due attività restavano da creare a mano** — il codice era pronto, ma
+      compilare due schede di Task Scheduler è un passo che si rimanda. `setup-scheduler.cmd`
+      alla radice le crea entrambe con un comando solo; resta manuale solo la spunta
+      "esegui appena possibile se un avvio pianificato viene ignorato", che `schtasks`
+      non espone da riga di comando (vedi `setup-scheduler.cmd` per il perché).
+
+      **Il testo "PC di casa è spento" era fuorviante quando il PC era acceso** ma
+      `jb work` non era mai partito: l'indicatore verifica un battito recente, non lo
+      stato di alimentazione, e diceva un fatto diverso da quello che sapeva davvero.
+      Corretto in `worker-status.tsx`, `cv-panel.tsx` e `task-progress.tsx` per parlare
+      del worker, non del PC.
 - [ ] **8.3** Digest email HTML via SMTP Gmail, con i nuovi match sopra soglia e link diretto alla riga sul sito Vercel
 - [ ] **8.4** **Toggle notifiche on/off in UI** nella pagina Impostazioni, persistito in `settings`, insieme a soglia e orario
 - [ ] **8.5** Pagina Run History: esiti, conteggi ed errori per fonte

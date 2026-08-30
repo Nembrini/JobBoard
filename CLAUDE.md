@@ -15,13 +15,14 @@ già successo. Prima di rimuoverne uno, controlla che il motivo non valga ancora
 ## Comandi
 
 Su questa macchina la execution policy di PowerShell è `AllSigned`, che rifiuta `npm.ps1`
-e ogni `.ps1` non firmato. I due wrapper alla radice esistono per quello — non sono
-comodità, sono l'unico modo di eseguire questi comandi senza abbassare un'impostazione di
-sicurezza dell'intera macchina.
+e ogni `.ps1` non firmato. I wrapper alla radice esistono per quello — non sono comodità,
+sono l'unico modo di eseguire questi comandi senza abbassare un'impostazione di sicurezza
+dell'intera macchina.
 
 ```bash
 .\jb <comando>      # CLI del worker (worker\.venv\Scripts\jobboard.exe)
 .\web dev|build|lint
+.\setup-scheduler   # crea le due attività di Task Scheduler per la raccolta automatica (una tantum)
 ```
 
 ### Worker
@@ -46,6 +47,7 @@ fixture.
 .\jb ingest --dry-run             # raccoglie e normalizza senza scrivere
 .\jb ingest --commit
 .\jb match --commit               # imbuto a 3 stadi; --rescore rivaluta tutto
+.\jb matches criteria --top-n 100 --reserved-floor 10   # tetto Stadio 2 e riserva per le fonti a budget
 .\jb work                         # consumer della coda + battito; --once per un giro solo
 .\jb work trigger                 # accoda un run_pipeline, per Task Scheduler (Fase 8.1/8.2)
 .\jb sources list|enable|boards

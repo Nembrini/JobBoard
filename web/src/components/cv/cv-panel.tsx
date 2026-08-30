@@ -144,7 +144,9 @@ export function CvPanel({
           Nessun CV per questo annuncio. Generarlo riscrive summary, punti e competenze sulle
           parole di questa offerta, <strong>senza aggiungere niente</strong> che non sia già nel
           tuo CV: quello che il profilo non dice, il CV non lo dirà.
-          {workerOnline ? null : " Il PC di casa è spento: il lavoro resta in coda e parte da solo."}
+          {workerOnline
+            ? null
+            : " Il worker non risulta attivo: il lavoro resta in coda e parte da solo non appena riparte."}
         </p>
       ) : (
         <Contenuto cv={cv} pdfUrl={pdfUrl} />
