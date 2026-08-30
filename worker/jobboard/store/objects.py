@@ -63,3 +63,35 @@ def download(percorso: str, destinazione: Path) -> Path:
 
     log.info("scaricato %s (%d byte)", percorso, destinazione.stat().st_size)
     return destinazione
+
+
+def upload(percorso: str, sorgente: Path, *, content_type: str = "application/pdf") -> str:
+    """Carica un file nel bucket e restituisce il percorso con cui rileggerlo.
+
+    ``x-upsert`` acceso di proposito: il percorso di un CV generato contiene
+    l'id dell'annuncio, quindi rigenerarlo deve **sostituire** il precedente.
+    Senza, la seconda generazione fallirebbe con 409 e la dashboard mostrerebbe
+    ancora il PDF vecchio accanto al testo nuovo — cioe' due documenti diversi
+    che si spacciano per lo stesso.
+    """
+    base, headers = _base_and_headers()
+    bucket = get_settings().supabase_storage_bucket
+
+    with sorgente.open("rb") as contenuto:
+        risposta = httpx.post(
+            f"{base}/object/{bucket}/{percorso}",
+            headers={
+                **headers,
+                "content-type": content_type,
+                "x-upsert": "true",
+                "cache-control": "3600",
+            },
+            content=contenuto.read(),
+            timeout=120,
+        )
+
+    if risposta.status_code >= 400:
+        raise StorageError(f"{percorso}: HTTP {risposta.status_code} — {risposta.text[:300]}")
+
+    log.info("caricato %s (%d byte)", percorso, sorgente.stat().st_size)
+    return percorso

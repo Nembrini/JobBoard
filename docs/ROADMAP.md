@@ -262,15 +262,46 @@ minuti, un errore resta 24 ore.
 
 ## Fase 6 — Generazione CV su misura · 2 gg
 
-- [ ] **6.1** Integrazione **letterale del prompt fornito** (career coach / executive resume writer / ATS specialist, framework ACR, divieto assoluto di inventare), con output strutturato: `top_keywords[5]`, `summary` da 45-60 parole, `experience[]`, `skills{hard, soft}`
-- [ ] **6.2** **Validatore anti-invenzione**: ogni bullet e ogni skill deve risalire a una entry del `MasterProfile`; le violazioni bloccano il render e forzano la rigenerazione
-- [ ] **6.3** Template Jinja2 ATS-safe: colonna singola, nessuna tabella o icona o layout multi-colonna, font standard, heading canonici
-- [ ] **6.4** Render Playwright con **loop fit-a-una-pagina**: render, conteggio pagine, compressione via LLM se serve, massimo 3 iterazioni, e solo in extremis riduzione controllata di interlinea e margini
-- [ ] **6.5** Upload su Supabase Storage in `resumes/{job_id}/Filippo_Nembrini_Resume.pdf`
-- [ ] **6.6** UI di preview: PDF via signed URL affiancato al diff rispetto al CV master, con le 5 keyword evidenziate; pulsanti Rigenera e Approva
-- [ ] **6.7** Lingua del CV determinata dalla lingua della job description (it/en/de/es/fr)
+- [~] **6.1** Prompt in `ai/prompts/cv_writer.md` (career coach / executive resume
+      writer / ATS specialist, framework ACR, divieto assoluto di inventare), con output
+      strutturato `top_keywords[5]`, `summary`, `experience[]`, `skills{hard, soft}`.
+      *Il testo "fornito" non è mai arrivato nel repository:* questo è scritto dalla
+      specifica di ARCHITECTURE §9 e sta in un file a sé apposta perché sostituirlo sia
+      un `git diff` e non una modifica al codice. **Dal modello passa solo la prosa**:
+      date, aziende, titoli di studio e recapiti li copia il template dal `MasterProfile`
+      e non entrano nemmeno nella richiesta.
+- [x] **6.2** **Validatore anti-invenzione** (`ai/validator.py`): ogni bullet dichiara il
+      `source_id` da cui viene, ogni competenza la `source`, e ogni cifra del testo
+      generato deve comparire nella fonte. Le violazioni bloccano il render; la
+      rigenerazione riceve l'elenco degli errori invece di ripartire alla cieca.
+- [x] **6.3** Template Jinja2 ATS-safe: colonna singola, nessuna tabella, icona o
+      immagine, font di sistema, heading canonici per lingua, date numeriche.
+- [x] **6.4** Render Playwright con **loop fit-a-una-pagina**: prima si taglia contenuto
+      (max 3 compressioni), solo dopo si stringe interlinea e margini, entro tre gradini
+      che restano leggibili. Ogni compressione ripassa dal validatore.
+- [x] **6.5** Upload su Supabase Storage in `{job_id}/Filippo_Nembrini_Resume.pdf`, con
+      `x-upsert` perché rigenerare deve sostituire, non fallire con 409.
+- [x] **6.6** UI di preview nella pagina dell'annuncio: PDF via signed URL, **diff frase
+      per frase** contro il CV master, le 5 keyword evidenziate nel testo, e i pulsanti
+      Rigenera e Approva.
+- [x] **6.7** Lingua del CV dedotta da `job.lang` (it/en/de/es/fr), con l'inglese come
+      ripiego: è la lingua che ogni ATS europeo processa.
+- [x] **6.8** Gestore `generate_cv` e comandi `jb cv generate` / `jb cv check`, che
+      eseguono lo stesso codice: due strade non devono produrre due CV diversi.
 
-**Verifica:** da un annuncio reale esce un PDF di **esattamente una pagina**, con testo selezionabile, che passa un parser ATS di test ed è scaricabile dal telefono.
+**Verifica:** eseguita end-to-end su Postgres locale con le migration vere e un provider
+LLM finto. Dal gestore `generate_cv` esce un PDF di **una pagina** con **1276 caratteri
+estraibili**, heading riconosciuti da `jb cv check`, ordine cronologico inverso e
+recapiti intatti dopo l'estrazione; la riga `application` esce `cv_ready` con percorso,
+lingua e payload, e un evento `cv_generated` in timeline. In dashboard: il diff mostra
+l'originale italiano accanto al riscritto inglese, Approva porta a `approved`, Rigenera
+accoda `generate_cv` con `{"match_id": N}`, e il CV di un altro annuncio non compare su
+questa pagina. Suite worker: **337 test**.
+
+**Resta aperto:** il PDF non è ancora stato provato con un LLM vero — serve una
+`GEMINI_API_KEY` valida e un profilo confermato — né caricato su Supabase, che richiede
+le chiavi di Filippo. Il percorso è verificato fino all'upload compreso, con la chiamata
+di rete sostituita.
 
 ---
 

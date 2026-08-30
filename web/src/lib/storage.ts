@@ -69,15 +69,25 @@ export async function removeObject(percorso: string): Promise<boolean> {
  * scusa che tanto non è indicizzato. Cinque minuti bastano a un click.
  */
 export async function signedUrl(percorso: string, secondi = 300): Promise<string | null> {
-  const risposta = await fetch(`${base()}/object/sign/${BUCKET}/${percorso}`, {
-    method: "POST",
-    headers: { ...auth(), "content-type": "application/json" },
-    body: JSON.stringify({ expiresIn: secondi }),
-  });
-  if (!risposta.ok) return null;
+  // `null` anche quando la richiesta non parte affatto. Chi chiama sa gia'
+  // gestire l'assenza di URL — mostra la scheda senza il bottone di download,
+  // l'anteprima senza il riquadro — mentre un'eccezione qui farebbe cadere
+  // l'intera pagina che conteneva il link. Un bucket irraggiungibile non deve
+  // poter nascondere il punteggio di un annuncio.
+  try {
+    const risposta = await fetch(`${base()}/object/sign/${BUCKET}/${percorso}`, {
+      method: "POST",
+      headers: { ...auth(), "content-type": "application/json" },
+      body: JSON.stringify({ expiresIn: secondi }),
+    });
+    if (!risposta.ok) return null;
 
-  const dati = (await risposta.json()) as { signedURL?: string };
-  return dati.signedURL ? `${base()}${dati.signedURL.replace(/^\/storage\/v1/, "")}` : null;
+    const dati = (await risposta.json()) as { signedURL?: string };
+    return dati.signedURL ? `${base()}${dati.signedURL.replace(/^\/storage\/v1/, "")}` : null;
+  } catch (errore) {
+    console.error("URL firmato non ottenuto per", percorso, errore);
+    return null;
+  }
 }
 
 /** Un nome file che non possa uscire dalla cartella né rompere un URL. */

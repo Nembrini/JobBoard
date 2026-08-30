@@ -76,8 +76,16 @@ const APERTI: TaskStatus[] = ["pending", "running"];
  * "Qualcosa da dire" è: sta aspettando, sta girando, o si è concluso da poco.
  * Negli altri casi torna `null` e la UI non mostra niente, che è la cosa giusta
  * da mostrare quando non sta succedendo niente.
+ *
+ * `payload` restringe a un lavoro preciso, e per alcuni tipi è indispensabile:
+ * `run_pipeline` è uno solo, ma di `generate_cv` ce n'è uno per annuncio, e
+ * senza filtro la pagina di un annuncio mostrerebbe l'avanzamento del CV di un
+ * altro.
  */
-export async function getLatestTask(tipo: TaskType): Promise<StatoTask | null> {
+export async function getLatestTask(
+  tipo: TaskType,
+  payload?: Record<string, unknown>,
+): Promise<StatoTask | null> {
   await guard();
 
   const righe = await getDb()
@@ -86,6 +94,7 @@ export async function getLatestTask(tipo: TaskType): Promise<StatoTask | null> {
     .where(
       and(
         eq(task.taskType, tipo),
+        payload ? sql`${task.payload} = ${JSON.stringify(payload)}::jsonb` : undefined,
         or(
           inArray(task.status, APERTI),
           // `finished_at` e non `updated_at`: il worker tocca la riga a ogni

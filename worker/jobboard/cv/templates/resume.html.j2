@@ -1,0 +1,138 @@
+{#
+  Template ATS-safe. Ogni scelta qui dentro e' una rinuncia estetica fatta apposta.
+
+  Un CV bello che il parser legge male vale meno di uno sobrio che legge bene:
+  prima del selezionatore il documento lo apre un software che ne estrae il testo
+  in ordine di flusso, e tutto cio' che sposta il testo fuori dal flusso lo
+  confonde. Quindi:
+
+  - UNA COLONNA. Un layout a due colonne viene letto per righe orizzontali:
+    l'intestazione della colonna destra finisce in mezzo a una frase di quella
+    sinistra.
+  - NESSUNA TABELLA, nemmeno per allineare le date. E' il singolo errore che
+    rompe piu' parser.
+  - NESSUNA ICONA, nessuna immagine, nessun carattere decorativo: un'icona di
+    telefono non e' un numero di telefono per chi legge il testo estratto.
+  - HEADING CANONICI (`headings`), quelli che i parser cercano per segmentare il
+    documento. "Le mie avventure professionali" e' una sezione che nessun ATS
+    riconosce.
+  - FONT DI SISTEMA, in stack: il PDF incorpora comunque i glifi, ma un font
+    scaricato che non arriva fa impaginare il documento con un sostituto e ne
+    cambia la lunghezza — proprio la grandezza su cui gira il loop di fit.
+
+  Le cinque `top_keywords` NON si stampano. Devono comparire dentro summary,
+  bullet e competenze, dove un parser le conta come esperienza vera; un elenco di
+  parole chiave in fondo al foglio e' keyword stuffing, e i filtri lo riconoscono.
+  Servono alla dashboard, per evidenziare cosa il CV sta cercando di dire.
+#}
+<!doctype html>
+<html lang="{{ lingua }}">
+<head>
+<meta charset="utf-8">
+<title>{{ profilo.contact.full_name }} — {{ headings.titolo_documento }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: {{ densita.margine_mm }}mm {{ densita.margine_mm }}mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Georgia, "Times New Roman", Times, serif;
+    font-size: {{ densita.punto }}pt;
+    line-height: {{ densita.interlinea }};
+    color: #000;
+    margin: 0;
+  }
+  h1 {
+    font-size: {{ (densita.punto * 1.72)|round(1) }}pt;
+    margin: 0 0 2pt;
+    letter-spacing: 0.2pt;
+  }
+  h2 {
+    font-size: {{ (densita.punto * 1.05)|round(1) }}pt;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    border-bottom: 0.75pt solid #000;
+    margin: {{ (densita.punto * 1.15)|round(1) }}pt 0 {{ (densita.punto * 0.45)|round(1) }}pt;
+    padding-bottom: 1.5pt;
+    /* Un heading in fondo alla pagina con il contenuto sopra la piega e' il modo
+       piu' rapido di far sembrare vuota una sezione piena. */
+    break-after: avoid;
+  }
+  h3 {
+    font-size: {{ densita.punto }}pt;
+    margin: {{ (densita.punto * 0.65)|round(1) }}pt 0 0;
+    font-weight: bold;
+  }
+  p { margin: 0 0 {{ (densita.punto * 0.3)|round(1) }}pt; }
+  ul {
+    margin: {{ (densita.punto * 0.2)|round(1) }}pt 0 0;
+    padding-left: {{ (densita.punto * 1.15)|round(1) }}pt;
+  }
+  li { margin-bottom: {{ (densita.punto * 0.22)|round(1) }}pt; }
+  .contatti { margin-bottom: {{ (densita.punto * 0.2)|round(1) }}pt; }
+  .meta { font-style: italic; }
+  /* Una voce non deve spezzarsi fra due pagine: quando il fit fallisce e restano
+     due pagine, meglio che la seconda cominci da un'esperienza intera. */
+  .voce { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<h1>{{ profilo.contact.full_name }}</h1>
+<p class="contatti">{{ contatti|join(' · ') }}</p>
+
+{% if cv.summary %}
+<h2>{{ headings.summary }}</h2>
+<p>{{ cv.summary }}</p>
+{% endif %}
+
+{% if esperienze %}
+<h2>{{ headings.esperienza }}</h2>
+{% for voce in esperienze %}
+<div class="voce">
+  <h3>{{ voce.fonte.role }} — {{ voce.fonte.company }}</h3>
+  <p class="meta">{{ voce.periodo }}{% if voce.luogo %} · {{ voce.luogo }}{% endif %}</p>
+  {% if voce.bullets %}
+  <ul>
+    {% for bullet in voce.bullets %}<li>{{ bullet.text }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+{% if cv.skills.hard or cv.skills.soft %}
+<h2>{{ headings.competenze }}</h2>
+{# Si stampa `text`, cioe' la grafia scelta per l'ATS; `source` non compare nel
+   documento — serve al validatore per sapere che quella parola e' vera. #}
+{% if cv.skills.hard %}<p>{{ cv.skills.hard|map(attribute='text')|join(' · ') }}</p>{% endif %}
+{% if cv.skills.soft %}<p>{{ cv.skills.soft|map(attribute='text')|join(' · ') }}</p>{% endif %}
+{% endif %}
+
+{% if profilo.education %}
+<h2>{{ headings.formazione }}</h2>
+{% for titolo in profilo.education %}
+<div class="voce">
+  <h3>{{ titolo.degree }}{% if titolo.field_of_study %} — {{ titolo.field_of_study }}{% endif %}</h3>
+  <p class="meta">{{ titolo.institution }}{% if titolo.end %} · {{ titolo.end|periodo_breve }}{% endif %}</p>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if profilo.certifications %}
+<h2>{{ headings.certificazioni }}</h2>
+<ul>
+  {% for certificazione in profilo.certifications %}
+  <li>{{ certificazione.name }}{% if certificazione.issuer %} — {{ certificazione.issuer }}{% endif %}{% if certificazione.issued %} ({{ certificazione.issued|periodo_breve }}){% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if lingue %}
+<h2>{{ headings.lingue }}</h2>
+<p>{{ lingue|join(' · ') }}</p>
+{% endif %}
+
+</body>
+</html>
