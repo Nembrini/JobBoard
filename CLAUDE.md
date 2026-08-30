@@ -47,6 +47,7 @@ fixture.
 .\jb ingest --commit
 .\jb match --commit               # imbuto a 3 stadi; --rescore rivaluta tutto
 .\jb work                         # consumer della coda + battito; --once per un giro solo
+.\jb work trigger                 # accoda un run_pipeline, per Task Scheduler (Fase 8.1/8.2)
 .\jb sources list|enable|boards
 .\jb profile import|load|embed|show
 .\jb cv generate <match-id>       # CV su misura; --no-upload lo lascia solo su disco
