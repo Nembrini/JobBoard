@@ -2,11 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Check, Download, RefreshCw, Sparkles } from "lucide-react";
+import { Check, Download, RefreshCw, Send, Sparkles } from "lucide-react";
 
 import { TaskProgress } from "@/components/task-progress";
-import type { CvGenerato } from "@/lib/applications";
-import { approvaCandidatura, generaCv } from "@/lib/cv-actions";
+import type { CvGenerato, StatoInvio } from "@/lib/applications";
+import { approvaCandidatura, generaCv, inviaCandidatura, segnaCandidaturaInviata } from "@/lib/cv-actions";
 import type { StatoTask } from "@/lib/tasks";
 
 /**
@@ -26,29 +26,46 @@ export function CvPanel({
   matchId,
   cv,
   taskIniziale,
+  applyTaskIniziale,
+  statoInvio,
   workerOnline,
   pdfUrl,
 }: {
   matchId: number;
   cv: CvGenerato | null;
   taskIniziale: StatoTask | null;
+  applyTaskIniziale: StatoTask | null;
+  statoInvio: StatoInvio | null;
   workerOnline: boolean;
   pdfUrl: string | null;
 }) {
   const router = useRouter();
   const [task, setTask] = useState(taskIniziale);
   const [ultimoDalServer, setUltimoDalServer] = useState(taskIniziale);
+  const [applyTask, setApplyTask] = useState(applyTaskIniziale);
+  const [ultimoApplyDalServer, setUltimoApplyDalServer] = useState(applyTaskIniziale);
   const [errore, setErrore] = useState<string | null>(null);
+  const [erroreInvio, setErroreInvio] = useState<string | null>(null);
+  const [chiedeConfermaAzienda, setChiedeConfermaAzienda] = useState(false);
   const [approvato, setApprovato] = useState(cv?.status === "approved");
   const [inCorso, startTransition] = useTransition();
+  const [invioInCorso, startInvio] = useTransition();
 
   // Come nelle altre barre: quando il server manda uno stato diverso vince lui.
   if (taskIniziale?.id !== ultimoDalServer?.id || taskIniziale?.status !== ultimoDalServer?.status) {
     setUltimoDalServer(taskIniziale);
     setTask(taskIniziale);
   }
+  if (
+    applyTaskIniziale?.id !== ultimoApplyDalServer?.id ||
+    applyTaskIniziale?.status !== ultimoApplyDalServer?.status
+  ) {
+    setUltimoApplyDalServer(applyTaskIniziale);
+    setApplyTask(applyTaskIniziale);
+  }
 
   const aperto = task?.status === "pending" || task?.status === "running";
+  const invioAperto = applyTask?.status === "pending" || applyTask?.status === "running";
 
   function genera() {
     setErrore(null);
@@ -84,6 +101,50 @@ export function CvPanel({
         return;
       }
       setApprovato(true);
+      router.refresh();
+    });
+  }
+
+  /** "Invia candidatura": accoda la preparazione. Puo' fermarsi a chiedere conferma. */
+  function invia(confermaNuovaAzienda = false) {
+    setErroreInvio(null);
+    startInvio(async () => {
+      const esito = await inviaCandidatura(matchId, confermaNuovaAzienda);
+      if (!esito.ok) {
+        if (esito.richiedeConfermaAzienda) {
+          setChiedeConfermaAzienda(true);
+          return;
+        }
+        setErroreInvio(esito.errore);
+        return;
+      }
+      setChiedeConfermaAzienda(false);
+      setApplyTask({
+        id: esito.taskId,
+        tipo: "apply",
+        status: "pending",
+        progress: 0,
+        progressMessage: null,
+        error: null,
+        result: null,
+        createdAt: new Date().toISOString(),
+        finishedAt: null,
+        attempts: 0,
+        maxAttempts: 3,
+      });
+      router.refresh();
+    });
+  }
+
+  /** "Segna come inviata": solo dopo che l'hai spedita tu nel browser. */
+  function segnaInviata() {
+    setErroreInvio(null);
+    startInvio(async () => {
+      const esito = await segnaCandidaturaInviata(matchId);
+      if (!esito.ok) {
+        setErroreInvio(esito.errore);
+        return;
+      }
       router.refresh();
     });
   }
@@ -124,6 +185,30 @@ export function CvPanel({
               {approvato ? "Approvato" : "Approva"}
             </button>
           ) : null}
+
+          {statoInvio?.status === "approved" ? (
+            <button
+              type="button"
+              onClick={() => invia(false)}
+              disabled={invioInCorso || invioAperto}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium disabled:opacity-40"
+            >
+              <Send className="size-4" />
+              Invia candidatura
+            </button>
+          ) : null}
+
+          {statoInvio?.status === "needs_human" ? (
+            <button
+              type="button"
+              onClick={segnaInviata}
+              disabled={invioInCorso}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium disabled:opacity-40"
+            >
+              <Check className="size-4" />
+              Segna come inviata
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -138,6 +223,48 @@ export function CvPanel({
         workerOnline={workerOnline}
         riepilogo={riepilogoGenerazione}
       />
+
+      {erroreInvio ? (
+        <p role="alert" className="text-destructive text-sm">
+          {erroreInvio}
+        </p>
+      ) : null}
+
+      {chiedeConfermaAzienda ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+          <p className="text-muted-foreground">
+            È la prima candidatura verso questa azienda: confermi che il worker apra il browser e
+            prepari il form?
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => invia(true)}
+              disabled={invioInCorso}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 items-center rounded-lg px-3 text-sm font-medium disabled:opacity-40"
+            >
+              Conferma
+            </button>
+            <button
+              type="button"
+              onClick={() => setChiedeConfermaAzienda(false)}
+              className="border-input hover:bg-accent inline-flex h-8 items-center rounded-lg border px-3 text-sm font-medium"
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <TaskProgress iniziale={applyTask} workerOnline={workerOnline} riepilogo={riepilogoInvio} />
+
+      {statoInvio?.status === "needs_human" ? (
+        <p className="text-muted-foreground bg-muted/40 rounded-xl p-4 text-sm leading-relaxed">
+          Il worker ha aperto il form (tier {statoInvio.tier}) e si è fermato prima di inviarlo:
+          controllalo sullo schermo del PC e premi invia <strong>tu, nel browser</strong>. Poi
+          torna qui e premi <strong>Segna come inviata</strong>.
+        </p>
+      ) : null}
 
       {cv === null ? (
         <p className="text-muted-foreground bg-muted/40 rounded-xl p-4 text-sm leading-relaxed">
@@ -358,4 +485,16 @@ function riepilogoGenerazione(result: Record<string, unknown>): string {
     parti.push(`${tentativi} tentativi prima di superare il controllo`);
   }
   return `${parti.join(" · ")}.`;
+}
+
+/** Il `result` del task `apply`, in una frase — vedi `apply_to_job` nel worker. */
+function riepilogoInvio(result: Record<string, unknown>): string {
+  const tier = typeof result.tier === "string" ? result.tier : "?";
+
+  if (result.dry_run) return `Dry-run (tier ${tier}): nessun browser aperto.`;
+  if (tier === "c_manual") return "Nessun form diretto: apri il link e candidati a mano.";
+
+  const compilati = Array.isArray(result.fields_filled) ? result.fields_filled.length : 0;
+  const cv = result.resume_uploaded ? "CV caricato" : "CV non caricato: caricalo tu";
+  return `Form pronto (tier ${tier}): ${compilati} campi compilati, ${cv}.`;
 }

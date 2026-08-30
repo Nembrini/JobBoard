@@ -17,6 +17,7 @@ from rich.table import Table
 
 from . import __version__
 from .commands import (
+    apply_app,
     candidate_app,
     cv_app,
     ingest_command,
@@ -61,6 +62,7 @@ app.add_typer(candidate_app)
 app.add_typer(sources_app)
 app.add_typer(matches_app)
 app.add_typer(cv_app)
+app.add_typer(apply_app)
 app.add_typer(work_app)
 app.command(name="ingest")(ingest_command)
 app.command(name="match")(match_command)

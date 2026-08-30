@@ -323,14 +323,35 @@ di rete sostituita.
 
 ## Fase 7 — Candidatura · 2.5 gg
 
-- [ ] **7.1** Router per tier in base a `ats_type`
-- [ ] **7.2** **Tier A**: client Greenhouse / Lever / Ashby / Workable, mapping dei campi da `candidate_profile`, upload multipart del PDF, parsing e salvataggio della risposta
-- [ ] **7.3** **Tier B**: Playwright headful sul PC, autofill euristico su label e attributi ATS noti, **stop prima del submit**, notifica alla dashboard "pronto da rivedere", screenshot salvato
-- [ ] **7.4** **Tier C**: apertura URL e task manuale in lista
-- [ ] **7.5** Guardrail: dry-run globale, cap giornaliero, conferma alla prima candidatura verso ogni nuova azienda, idempotenza
-- [ ] **7.6** Timeline `application_event`
+> **Il Tier A non invia più via API.** Il piano qui sotto lo prevedeva; scritto il
+> client contro la documentazione ufficiale delle quattro API, nessuna delle
+> quattro permette una `POST` da un candidato esterno — Greenhouse la blocca con
+> reCAPTCHA Enterprise, le altre tre richiedono una chiave che genera solo
+> l'azienda. Il perché per esteso, con le fonti, è in `docs/ARCHITECTURE.md` §10.
+> Tier A e B condividono ora lo stesso motore Playwright e si fermano entrambi
+> prima del submit; cambia solo se il form si compila con selettori dedicati
+> (A) o con un'euristica su label e attributi (B).
 
-**Verifica:** una candidatura Tier A reale arriva a destinazione e ricevi la mail di conferma dell'ATS; una Tier B si ferma correttamente prima dell'invio.
+- [x] **7.1** Router per tier in base a `ats_type` **e** `apply_url` — `jobboard/apply/router.py`
+- [x] **7.2** **Tier A**: selettori dedicati per Greenhouse / Lever / Ashby / Workable (`jobboard/apply/selectors.py`), piano di campi da `CandidateAnswers` + `MasterProfile` (`jobboard/apply/fields.py`), upload del PDF nel campo curriculum. **Non invia via API** — vedi la nota sopra
+- [x] **7.3** **Tier B**: Playwright headful sul PC (`jobboard/apply/browser.py`), autofill euristico su label e attributi (`jobboard/apply/heuristics.py`), **stop prima del submit**, candidatura a `needs_human` con screenshot salvato su disco
+- [x] **7.4** **Tier C**: nessun `apply_url` diretto — nessun browser, solo il link pronto da aprire a mano
+- [x] **7.5** Guardrail (`jobboard/apply/guardrails.py`): dry-run globale (simula, non apre un browser), cap giornaliero sulle candidature **preparate** (non spedite — è l'azione automatica da limitare), conferma esplicita alla prima candidatura verso ogni azienda nuova (dialogo in dashboard, payload `confirmed_new_company`), idempotenza sul vincolo `UNIQUE` di `application.match_id`
+- [x] **7.6** Timeline `application_event`: due voci nuove, `prepared` e `prepare_failed`, per il momento in cui il worker si ferma prima del submit; `submitted` la scrive solo `markApplicationSubmitted` in dashboard, con un click esplicito **dopo** l'invio vero nel browser
+
+**Verifica fatta:** suite worker (337 → **377 test**, i 40 nuovi senza database né
+browser reale — coprono router, piano dei campi, motore euristico, selettori
+noti, guardrail), `ruff`, `mypy --strict` puliti. Lato web: `tsc --noEmit`,
+`eslint` e `next build` puliti con i tipi generati da `next typegen`; la
+migration del nuovo CHECK constraint è scritta ma non applicata a un database
+vero in questo ambiente (nessuna credenziale Supabase qui).
+
+**Resta aperto:** nessun selettore o euristica è stato provato contro un form
+vero — serve un annuncio reale, uno schermo e il PC di Filippo acceso, che
+questo ambiente non ha. Prima verifica end-to-end suggerita: approvare un CV,
+premere "Invia candidatura" su un annuncio Greenhouse vero, controllare che il
+browser si apra precompilato e fermo prima del submit, poi premere "Segna come
+inviata" a mano dopo averla spedita davvero.
 
 ---
 
@@ -415,8 +436,10 @@ un'altra stanza**:
 4. Ordina per Match %, apri il drawer del primo risultato, controlla i gap evidenziati.
 5. Premi **Candidati**. Il worker genera il CV: verifica che il PDF sia **di una pagina**,
    si chiami `Filippo_Nembrini_Resume.pdf` e sia scaricabile dal telefono via signed URL.
-6. Approva su un annuncio Greenhouse (Tier A), conferma l'invio e attendi la mail di
-   conferma dell'ATS.
-7. Spegni il worker e premi di nuovo **Candidati** su un altro annuncio: il task deve
-   restare in coda, l'indicatore diventare **offline**, e il task partire da solo alla
-   riaccensione.
+6. Approva il CV, poi premi **Invia candidatura** su un annuncio Greenhouse (Tier A):
+   entro un minuto si apre sul PC un browser con il form precompilato, fermo prima
+   del submit. Controllalo, premilo tu, poi torna sul telefono e premi **Segna come
+   inviata**: solo a quel punto lo stato diventa "inviata" in tabella.
+7. Spegni il worker e premi di nuovo **Invia candidatura** su un altro annuncio: il task
+   deve restare in coda, l'indicatore diventare **offline**, e il task partire da solo
+   alla riaccensione.

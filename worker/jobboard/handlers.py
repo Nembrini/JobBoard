@@ -13,13 +13,14 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .apply.router import decide_tier
 from .db import session_scope
 from .models import Application, ApplicationEvent, Job, Match, WorkerHeartbeat
 from .models.base import utcnow
 from .models.enums import (
-    TIER_A_ATS,
     ApplicationEventType,
     ApplicationStatus,
     ApplicationTier,
@@ -27,7 +28,7 @@ from .models.enums import (
     TaskType,
 )
 from .queue import Contesto, TaskError, handler
-from .store import load_profile, save_profile
+from .store import load_candidate, load_profile, save_profile
 from .store.objects import download, upload
 
 if TYPE_CHECKING:
@@ -365,6 +366,247 @@ def generate_cv(ctx: Contesto) -> dict[str, Any]:
     }
 
 
+@handler(TaskType.APPLY)
+def apply_to_job(ctx: Contesto) -> dict[str, Any]:
+    """Prepara la candidatura nel browser: compila il form, fotografa, si ferma (Fase 7).
+
+    **Non spedisce niente.** Con Tier A e B che condividono lo stesso motore
+    Playwright e si fermano entrambi prima del submit (vedi
+    ``jobboard.apply``), questo gestore porta una candidatura da ``approved``
+    a ``needs_human`` — mai a ``submitted``, che lo scrive solo un click nella
+    dashboard dopo che l'invio e' avvenuto davvero nel browser.
+
+    Guardrail in ordine: **cap giornaliero** (quante preparazioni oggi, non
+    quanti invii — e' l'azione automatica da limitare), poi **azienda nuova**
+    (la prima verso ogni azienda richiede la conferma esplicita che arriva
+    nel payload). Il **dry-run globale** non blocca: simula, senza aprire un
+    browser ne' contattare il sito dell'ATS.
+    """
+    match_id = ctx.payload.get("match_id")
+    if not isinstance(match_id, int):
+        raise TaskError("payload senza match_id", definitivo=True)
+    confermata_nuova_azienda = bool(ctx.payload.get("confirmed_new_company", False))
+
+    # Import ritardati: Playwright non deve pesare su un worker che sta solo
+    # scrivendo il battito, come per Jinja2 e il client LLM in generate_cv.
+    from .apply.browser import PrepareError, prepare_application
+    from .apply.fields import build_plan
+    from .apply.guardrails import check_daily_cap, check_new_company
+    from .config import get_settings
+
+    settings = get_settings()
+
+    ctx.avanza(5, "leggo candidatura, annuncio e profilo")
+    with session_scope() as session:
+        candidatura = (
+            session.query(Application).filter(Application.match_id == match_id).one_or_none()
+        )
+        if candidatura is None:
+            raise TaskError(
+                f"nessuna candidatura per il match {match_id}: genera prima il CV", definitivo=True
+            )
+        if candidatura.status not in (ApplicationStatus.APPROVED, ApplicationStatus.NEEDS_HUMAN):
+            # Idempotenza: gia' spedita, respinta in modo definitivo, o non
+            # ancora approvata. Un secondo tentativo non cambierebbe niente
+            # di questi tre casi, e ritentarlo aprirebbe un browser a vuoto.
+            raise TaskError(
+                f"la candidatura e' in stato '{candidatura.status.value}': non si prepara da qui",
+                definitivo=True,
+            )
+
+        match = session.get(Match, match_id)
+        job = session.get(Job, match.job_id) if match else None
+        if job is None:  # pragma: no cover - la FK lo impedisce
+            raise TaskError(f"il match {match_id} punta a un annuncio sparito", definitivo=True)
+
+        salvato = load_profile(session)
+        if salvato is None or not salvato.reviewed:
+            raise TaskError(
+                "il profilo non e' stato confermato: aprilo nella pagina CV e premi Conferma",
+                definitivo=True,
+            )
+        candidato = load_candidate(session)
+        if candidato is None:
+            raise TaskError(
+                "nessuna risposta ai form di candidatura salvata: compilala nelle Impostazioni",
+                definitivo=True,
+            )
+
+        tier = decide_tier(job)
+        candidatura.tier = tier
+
+        mezzanotte = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        preparate_oggi = (
+            session.scalar(
+                select(func.count())
+                .select_from(ApplicationEvent)
+                .where(
+                    ApplicationEvent.event_type == ApplicationEventType.PREPARED,
+                    ApplicationEvent.occurred_at >= mezzanotte,
+                )
+            )
+            or 0
+        )
+        esito_cap = check_daily_cap(preparate_oggi, settings.daily_application_cap)
+        if not esito_cap.ok:
+            # Definitivo: il tetto non cambia fra un tentativo e il successivo
+            # nello stesso giorno, quindi ritentare subito fallirebbe uguale e
+            # consumerebbe solo i tentativi rimasti. Domani il conteggio
+            # riparte da zero, ma il task va accodato di nuovo a mano.
+            raise TaskError(esito_cap.reason or "tetto giornaliero raggiunto", definitivo=True)
+
+        precedenti_verso_azienda = (
+            session.scalar(
+                select(func.count())
+                .select_from(Application)
+                .join(Match, Match.id == Application.match_id)
+                .join(Job, Job.id == Match.job_id)
+                .where(
+                    Job.company_normalized == job.company_normalized,
+                    Application.id != candidatura.id,
+                    Application.status != ApplicationStatus.DRAFT,
+                )
+            )
+            or 0
+        )
+        # Un secondo tentativo sulla stessa candidatura (il browser si e'
+        # fermato con un errore, o si vuole riaprire il form) non deve
+        # richiedere la conferma una seconda volta: e' gia' stata data la
+        # prima volta che questa candidatura e' arrivata a ``prepared``.
+        gia_preparata_prima = (
+            session.scalar(
+                select(func.count())
+                .select_from(ApplicationEvent)
+                .where(
+                    ApplicationEvent.application_id == candidatura.id,
+                    ApplicationEvent.event_type == ApplicationEventType.PREPARED,
+                )
+            )
+            or 0
+        ) > 0
+        esito_azienda = check_new_company(
+            precedenti_verso_azienda + (1 if gia_preparata_prima else 0),
+            confirmed=confermata_nuova_azienda,
+        )
+        if not esito_azienda.ok:
+            # Definitivo: ritentare da solo non produce la conferma che manca,
+            # deve arrivare di nuovo dalla dashboard con il flag impostato.
+            raise TaskError(esito_azienda.reason or "conferma richiesta", definitivo=True)
+
+        # ``job`` resta leggibile dopo la chiusura della sessione — la
+        # factory e' configurata con ``expire_on_commit=False`` — e serve
+        # tale e quale a ``build_plan`` piu' sotto, oltre che per titolo e
+        # azienda nel risultato finale.
+        ats_type = job.ats_type
+        apply_url = job.apply_url or job.url
+        cv_percorso_remoto = candidatura.cv_storage_path
+        candidato_answers = candidato.answers
+        profilo = salvato.profile
+
+    if not cv_percorso_remoto:
+        raise TaskError(
+            "nessun CV generato per questa candidatura: genera prima il CV", definitivo=True
+        )
+
+    if settings.dry_run:
+        ctx.avanza(90, "dry-run: simulo senza aprire un browser")
+        risultato: dict[str, Any] = {
+            "tier": tier.value,
+            "dry_run": True,
+            "note": "dry-run globale attivo (DRY_RUN in worker/.env): nessun browser aperto",
+        }
+        nota = f"dry-run, tier {tier.value}"
+    else:
+        ctx.avanza(20, f"scarico il CV (tier {tier.value})")
+        percorso_cv_locale = settings.data_dir / "cv" / f"apply-{match_id}.pdf"
+        download(cv_percorso_remoto, percorso_cv_locale)
+
+        piano = build_plan(candidato_answers, profilo, job, resume_path=percorso_cv_locale)
+
+        if tier is ApplicationTier.C_MANUAL:
+            ctx.avanza(90, "nessun form diretto: solo apertura manuale")
+            risultato = {
+                "tier": tier.value,
+                "dry_run": False,
+                "apply_url": apply_url,
+                "note": "nessun apply_url diretto: apri il link e candidati a mano",
+            }
+            nota = "Tier C: nessun form diretto"
+        else:
+            from .apply.selectors import known_fields
+
+            ctx.avanza(40, "apro il browser e compilo il form")
+            screenshot = settings.data_dir / "apply" / f"match-{match_id}.png"
+            try:
+                preparato = prepare_application(
+                    apply_url,
+                    piano,
+                    known_fields(ats_type),
+                    screenshot,
+                    headless=False,
+                )
+            except PrepareError as exc:
+                with session_scope() as session:
+                    riga = session.get(Application, candidatura.id)
+                    if riga is not None:
+                        riga.error = str(exc)[:4000]
+                        session.add(
+                            ApplicationEvent(
+                                application_id=riga.id,
+                                event_type=ApplicationEventType.PREPARE_FAILED,
+                                occurred_at=utcnow(),
+                                note=str(exc)[:500],
+                                payload={"tier": tier.value},
+                            )
+                        )
+                raise TaskError(str(exc)) from exc
+
+            ctx.avanza(90, "form pronto, salvo lo screenshot")
+            risultato = {
+                "tier": tier.value,
+                "dry_run": False,
+                "apply_url": apply_url,
+                "fields_filled": preparato.filled,
+                "fields_unmatched": preparato.unmatched,
+                "resume_uploaded": preparato.resume_uploaded,
+                "screenshot_path": str(preparato.screenshot_path),
+                # Detto qui perche' finisce in `task.result` e la dashboard lo mostra.
+                "next": "Apri il browser sul PC, controlla il form e premi invia tu.",
+            }
+            nota = f"tier {tier.value}, {len(preparato.filled)} campi compilati"
+
+    ctx.avanza(97, "salvo")
+    with session_scope() as session:
+        riga = session.get(Application, candidatura.id)
+        if riga is None:  # pragma: no cover - difensivo
+            raise TaskError("la candidatura e' sparita durante la preparazione")
+        riga.tier = tier
+        riga.was_dry_run = settings.dry_run
+        riga.error = None
+        riga.status = ApplicationStatus.NEEDS_HUMAN
+        riga.ats_response = {**(riga.ats_response or {}), "prepare": risultato}
+        if risultato.get("screenshot_path"):
+            riga.screenshots = [*riga.screenshots, risultato["screenshot_path"]]
+        session.add(
+            ApplicationEvent(
+                application_id=riga.id,
+                event_type=ApplicationEventType.PREPARED,
+                occurred_at=utcnow(),
+                note=nota,
+                payload=risultato,
+            )
+        )
+
+    log.info("candidatura per il match %d preparata (tier %s)", match_id, tier.value)
+    return {
+        "match_id": match_id,
+        "job_id": job.id,
+        "title": job.title,
+        "company": job.company,
+        **risultato,
+    }
+
+
 def _application_per(session: Session, match_id: int, job: Job) -> Application:
     """La candidatura di questo match, creata se non c'e'.
 
@@ -383,21 +625,14 @@ def _application_per(session: Session, match_id: int, job: Job) -> Application:
     # e' ancora DRAFT" che sta nel chiamante non scattava mai e ogni CV appena
     # generato restava `draft`. Effetto visibile: il bottone Approva della
     # dashboard non si accendeva.
+    #
+    # Il tier e' provvisorio: ``apply_to_job`` lo ricalcola con
+    # ``apply.router.decide_tier`` appena la candidatura viene preparata, e a
+    # quel punto e' definitivo. Qui serve solo perche' la colonna e' NOT NULL.
     candidatura = Application(
         match_id=match_id,
-        tier=_tier_provvisorio(job),
+        tier=decide_tier(job),
         status=ApplicationStatus.DRAFT,
     )
     session.add(candidatura)
     return candidatura
-
-
-def _tier_provvisorio(job: Job) -> ApplicationTier:
-    """Il tier con cui nasce la candidatura.
-
-    Provvisorio di proposito: il router vero e' la Fase 7.1, che guarda anche se
-    il form e' raggiungibile e se serve un login. Qui serve solo perche' la
-    colonna e' NOT NULL, e la scelta piu' onesta a questo punto e' "automatico se
-    l'ATS e' uno dei quattro che sappiamo gia' compilare, assistito altrimenti".
-    """
-    return ApplicationTier.A_AUTO if job.ats_type in TIER_A_ATS else ApplicationTier.B_ASSISTED

@@ -28,7 +28,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 
 
 // Valori ammessi, gli stessi imposti dai vincoli CHECK nel database.
-export type ApplicationEventType = "created" | "cv_generated" | "approved" | "submitted" | "submit_failed" | "email_received" | "status_changed" | "follow_up_due";
+export type ApplicationEventType = "created" | "cv_generated" | "approved" | "prepared" | "prepare_failed" | "submitted" | "submit_failed" | "email_received" | "status_changed" | "follow_up_due";
 export type ApplicationStatus = "draft" | "cv_ready" | "approved" | "needs_human" | "submitted" | "failed" | "withdrawn" | "acknowledged" | "interview" | "rejected" | "offer";
 export type ApplicationTier = "a_auto" | "b_assisted" | "c_manual";
 export type AtsType = "greenhouse" | "lever" | "ashby" | "workable" | "recruitee" | "smartrecruiters" | "workday" | "taleo" | "other" | "unknown";

@@ -760,19 +760,73 @@ Due dettagli che l'esecuzione ha imposto:
 
 ## 10. Router della candidatura
 
+### Il Tier A non è un invio via API: scoperto scrivendo la Fase 7
+
+Il piano qui sotto, scritto prima di implementare la Fase 7, prevedeva per il
+Tier A una `POST` diretta all'endpoint pubblico di Greenhouse, Lever, Ashby e
+Workable. Verificato leggendo la documentazione ufficiale delle quattro API
+prima di scrivere il client: **nessuna delle quattro lo permette a un
+candidato esterno.**
+
+- **Greenhouse** protegge oggi il form pubblico di apply con reCAPTCHA
+  Enterprise e un fingerprint minato lato client (`g-recaptcha-enterprise-token`,
+  `csrfToken`, `fingerprint` nel corpo della richiesta) — una `POST` da uno
+  script senza browser viene rifiutata. L'endpoint documentato
+  (`POST /v1/boards/{token}/jobs/{id}`) esiste ancora, ma richiede comunque
+  Basic Auth con una **Job Board API key**, che genera solo un amministratore
+  dell'azienda che ospita la board: non è qualcosa che un candidato possiede.
+- **Lever** ha un endpoint pubblico per la lista annunci, ma l'endpoint di
+  apply (`POST /v0/postings/{account}/{id}`) richiede una **Postings API key**
+  generata da un Super Admin dell'account Lever dell'azienda.
+- **Workable** espone in lettura solo il widget pubblico (`GET
+  /api/v1/widget/accounts/{account}`): la creazione di un candidato passa
+  dall'API REST v3 autenticata con un bearer token dell'azienda.
+- **Ashby** non pubblica un'API generica per i job board ospitati;
+  `applicationForm.submit` richiede il permesso `candidatesWrite`, quindi
+  anch'esso una chiave lato azienda.
+
+Tentare comunque l'invio via API — con credenziali che non si possiedono, o
+aggirando il reCAPTCHA di Greenhouse — avrebbe violato il guardrail "nessun
+aggiramento di CAPTCHA o sistemi anti-bot" scritto **prima** di scoprire il
+problema, in fondo a questa stessa sezione. Il guardrail non è cambiato: è il
+piano che gli sbatteva contro, e la correzione era obbligata.
+
+**La correzione:** Tier A e Tier B condividono lo stesso motore — Playwright
+headful sul PC di Filippo — e si fermano **entrambi** prima del submit. Cambia
+solo come si compila il form:
+
 | Tier | Quando | Comportamento |
 |---|---|---|
-| **A — automatico** | `ats_type` fra greenhouse, lever, ashby, workable | il worker fa POST all'endpoint pubblico della board, PDF in multipart, risposta salvata |
-| **B — assistito** | tutto il resto con form raggiungibile | Playwright **headful** sul PC: precompila i campi noti, **si ferma prima del submit**, notifica "pronto da rivedere", screenshot salvato |
-| **C — manuale** | form non automatizzabile o dietro login | apre l'URL, crea un task da fare a mano |
+| **A** | `ats_type` fra greenhouse, lever, ashby, workable, **e** un `apply_url` diretto | Playwright headful con selettori dedicati a quell'ATS (`jobboard/apply/selectors.py`), **si ferma prima del submit** |
+| **B** | qualsiasi altro ATS con un `apply_url` diretto | stesso Playwright headful, precompilazione euristica su label e attributi (`jobboard/apply/heuristics.py`) |
+| **C** | nessun `apply_url` diretto (solo il link dell'aggregatore) | apre l'URL, candidatura da fare a mano |
+
+Il codice sta in `jobboard/apply/`: `router.py` decide il tier, `fields.py`
+trasforma `CandidateAnswers` + `MasterProfile` in un piano di valori,
+`heuristics.py`/`selectors.py` decidono dove scriverli, `browser.py` e' l'unico
+modulo che parla con Playwright. Nessuno di questi selettori è stato
+verificato su un form vero — richiede un annuncio reale e uno schermo, che
+questo repository non ha in CI — e resta "verificato fino a qui" come il resto
+della Fase 7 che tocca siti di terzi.
+
+**Conseguenza sugli stati.** `ApplicationStatus.SUBMITTED` non lo scrive più
+nessun codice del worker: lo scrive un click nella dashboard (`markApplicationSubmitted`),
+**dopo** che l'invio è avvenuto davvero nel browser aperto sullo schermo. Il
+worker porta una candidatura solo fino a `needs_human` — due nuovi eventi,
+`prepared` e `prepare_failed`, segnano se ci è arrivato o no.
 
 ### Guardrail non negoziabili
 
-- **dry-run globale** attivo al primo avvio
-- **cap giornaliero** configurabile, default 10 candidature
+- **dry-run globale** attivo al primo avvio: nessun browser si apre, la
+  preparazione è simulata
+- **cap giornaliero** configurabile, default 10 candidature **preparate** al
+  giorno (non spedite: è l'apertura di un browser verso un sito di terzi
+  l'azione automatica da limitare)
 - **conferma esplicita** alla prima candidatura verso ogni nuova azienda
-- **idempotenza**: lo stesso annuncio non può partire due volte
-- **nessun aggiramento** di CAPTCHA o sistemi anti-bot
+- **idempotenza**: lo stesso annuncio non può partire due volte (`match_id`
+  è `UNIQUE` su `application`)
+- **nessun aggiramento** di CAPTCHA o sistemi anti-bot — il vincolo che ha
+  reso necessaria la correzione qui sopra, non un'aggiunta successiva
 
 ## 11. Sicurezza
 
@@ -880,7 +934,7 @@ database nomina.
 | JSearch free tier stretto (~6 chiamate/giorno) e copre solo ciò che Google indicizza | Query batchate e prioritizzate; le board ATS restano la fonte primaria; l'upgrade a pagamento è una scelta successiva, non un prerequisito |
 | Dati personali su servizi terzi | Region EU, bucket privato con signed URL, auth a singolo account, nessun dato in URL o query string |
 | `onnxruntime` / `fastembed` senza wheel su Windows | Motivo per cui si usa Python 3.12; fallback su embedding API (Voyage) dietro la stessa interfaccia |
-| Gli endpoint di apply degli ATS cambiano senza preavviso | Test di contratto per adapter; il fallimento del Tier A degrada automaticamente a Tier B |
+| I selettori noti (Tier A) o l'euristica (Tier B) non trovano un campo, o un ATS cambia il markup | Un campo non trovato non blocca la preparazione — resta nell'elenco "campi non trovati" del risultato — e lo stop prima del submit è comunque una revisione umana obbligatoria come ultima rete: nessun form parte senza che tu l'abbia guardato |
 | `MasterProfile` estratto male avvelena tutto a valle | Revisione manuale obbligatoria in Fase 1.3 prima di procedere |
 | Free tier Supabase/Vercel esauriti o in pausa | Con una run giornaliera Supabase non va mai in pausa; il consumo si monitora in Fase 10.2 |
 | Gmail IMAP/SMTP richiede 2FA + App Password | Documentato nel README; il tracking automatico è l'ultima fase e non blocca nulla |
@@ -898,7 +952,7 @@ Job Board/
                              criteria, filters, bm25, rank, match
       ai/                    client, embeddings, rubric, validator, prompts/
       cv/                    templates/, render.py, fit.py
-      apply/                 router, greenhouse, lever, ashby, workable, assisted
+      apply/                 router, fields, selectors (Tier A), heuristics (Tier B), browser, guardrails
       notify/                email_digest, imap_reader, classifier
     alembic/
     pyproject.toml
