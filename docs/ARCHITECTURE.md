@@ -610,6 +610,80 @@ sovrascrivere il CV di un'altra candidatura.
 
 Lingua del CV determinata dalla lingua della job description (it/en/de/es/fr).
 
+### Dal modello passa solo la prosa
+
+La decisione che rende governabile tutto il resto, presa scrivendo la fase. Al generatore
+si chiedono quattro cose — le cinque keyword, il summary, i bullet riscritti, le
+competenze — e **nient'altro**. Nomi delle aziende, date di inizio e fine, titoli di
+studio, recapiti, certificazioni e lingue non entrano nemmeno nella richiesta: li copia il
+template leggendoli dal `MasterProfile`.
+
+Un modello che può sbagliare una data è un modello che va riletto per intero ogni volta.
+Un modello che le date non le tocca ha una superficie di invenzione ristretta a quello che
+il validatore sa verificare, ed è la differenza fra un CV da controllare e uno da spedire.
+
+Per lo stesso motivo **l'ordine delle esperienze non lo decide il modello**: sceglie quali
+tenere, ma a metterle in fila è il codice, in ordine cronologico inverso. Riordinare una
+carriera non è una scelta editoriale.
+
+### Un id è un'affermazione, non una prova
+
+Ogni bullet generato dichiara il `source_id` del bullet del profilo da cui viene. Non
+basta: il modello può scrivere qualunque cosa e attribuirla a `acme-be-1`. Il validatore
+verifica quindi tre cose diverse, tutte deterministiche:
+
+1. **la provenienza esiste** — e appartiene all'esperienza sotto cui il bullet è stato
+   messo. Un bullet vero sotto il datore di lavoro sbagliato è comunque falso;
+2. **le cifre risalgono alla fonte** — ogni numero del testo generato deve comparire nel
+   bullet di partenza. È la regola che conta di più: un numero falso su un CV è l'unico
+   errore che in un colloquio non si recupera;
+3. **le competenze risalgono al profilo**.
+
+### Due falsi positivi che avrebbero reso inutile il validatore
+
+Entrambi trovati provando, ed entrambi gravi allo stesso modo: **un validatore che blocca
+i CV giusti viene spento**, e da quel momento non protegge più da niente.
+
+*I numeri scritti a lettere.* Il `MasterProfile` conserva il CV come è scritto, e i CV
+italiani scrivono "da sei ore a venti minuti", "quaranta milioni di righe", "dal quaranta
+all'ottanta percento". Il CV generato usa le cifre, perché così si scrive un CV. Senza un
+vocabolario dei numeri a parole — italiano e inglese, composti compresi — ogni riscrittura
+corretta risultava un'invenzione. Sottocaso trovato subito dopo: **"per cento" non è il
+numero cento**, e senza quell'eccezione una percentuale scritta a parole introduceva un
+100 fantasma.
+
+*Le competenze tradotte.* La Fase 6.7 scrive il CV nella lingua dell'annuncio, quindi un
+profilo italiano che dichiara "Lavoro in team" produce un CV inglese che dice "Teamwork".
+Nessuna somiglianza di stringa lega le due cose. Il primo rimedio — match per prefisso dai
+quattro caratteri, la regola già usata dal filtro delle fonti — aveva il difetto opposto e
+peggiore: `"javascript".startswith("java")`, quindi un profilo che dichiara Java
+giustificava un CV che dichiara JavaScript.
+
+La soluzione è la stessa disciplina dei bullet: **ogni competenza dichiara la sua
+provenienza**. `text` è come va scritta nel CV — con la grafia dell'annuncio, tradotta se
+serve — e `source` è la voce del profilo, ricopiata alla lettera e confrontata in modo
+esatto. Il profilo dice "PostgreSQL", l'annuncio dice "Postgres", il CV scrive "Postgres"
+e resta vero.
+
+### Prima si toglie, poi si stringe
+
+L'ordine dei rimedi del loop di fit non è casuale. Stringere interlinea e margini è
+gratis e istantaneo, ed è esattamente per questo che è la tentazione sbagliata: un CV a
+8pt con margini da un centimetro sta in una pagina e non lo legge nessuno. Il contenuto di
+troppo va tolto perché è di troppo; la densità è la riserva per l'ultimo centimetro, in
+tre gradini che restano leggibili.
+
+Due dettagli che l'esecuzione ha imposto:
+
+- **quanto sfora si misura, non si indovina.** Il conteggio delle pagine dice "due" sia per
+  un CV che sfora di tre righe sia per uno che sfora di mezza pagina, e chiedere di
+  tagliare il 50% al primo restituisce un CV dimezzato. Si guarda dove arriva l'ultima riga
+  di testo sull'ultima pagina, e si chiede un taglio proporzionato. Sotto il 6% non si
+  chiama nemmeno il modello: si stringe e basta;
+- **ogni compressione ripassa dal validatore.** Una riscrittura è una generazione, e una
+  generazione può inventare. Se una compressione introduce una violazione si scarta *lei*,
+  non il documento, e si tiene la versione approvata prima.
+
 ## 10. Router della candidatura
 
 | Tier | Quando | Comportamento |

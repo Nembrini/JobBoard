@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { ExternalLink } from "lucide-react";
 
 import { ScoreBadge, SourceList, WorkModeBadge } from "@/components/badges";
+import { CvSection } from "@/components/cv/cv-section";
 import {
   CONTRACT_LABEL,
   RUBRIC_LABEL,
@@ -184,6 +186,16 @@ export async function MatchDetail({
           ) : null}
         </section>
       ) : null}
+
+      {/* Il CV sta dopo la rubrica e i requisiti, e prima del testo integrale:
+          si genera un CV quando si e' gia' deciso che l'annuncio vale, e il
+          testo integrale e' la parte che si legge solo se le sezioni sopra
+          hanno convinto. Dentro Suspense perche' fra le sue letture c'e' una
+          chiamata di rete a Supabase per l'URL firmato, e il dettaglio
+          dell'annuncio non deve aspettarla. */}
+      <Suspense fallback={<p className="text-muted-foreground text-sm">CV su misura …</p>}>
+        <CvSection matchId={matchId} />
+      </Suspense>
 
       <section>
         <h2 className="text-muted-foreground mb-3 text-xs font-medium tracking-[0.06em] uppercase">

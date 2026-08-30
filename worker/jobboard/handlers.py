@@ -13,13 +13,22 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy.orm import Session
+
 from .db import session_scope
-from .models import WorkerHeartbeat
+from .models import Application, ApplicationEvent, Job, Match, WorkerHeartbeat
 from .models.base import utcnow
-from .models.enums import RunStatus, TaskType
+from .models.enums import (
+    TIER_A_ATS,
+    ApplicationEventType,
+    ApplicationStatus,
+    ApplicationTier,
+    RunStatus,
+    TaskType,
+)
 from .queue import Contesto, TaskError, handler
 from .store import load_profile, save_profile
-from .store.objects import download
+from .store.objects import download, upload
 
 if TYPE_CHECKING:
     from .pipeline.ingest import IngestReport
@@ -223,3 +232,172 @@ def _segna_run(esito: RunStatus) -> None:
             session.add(riga)
         riga.last_run_at = utcnow()
         riga.last_run_status = esito
+
+
+@handler(TaskType.GENERATE_CV)
+def generate_cv(ctx: Contesto) -> dict[str, Any]:
+    """Scrive il CV su misura per un annuncio e lo mette nel bucket (Fase 6).
+
+    E' la meta' locale del bottone "Candidati": una chiamata LLM da decine di
+    secondi, un browser che impagina e un PDF da caricare, cioe' tre cose che su
+    una funzione serverless non stanno.
+
+    **Il documento non parte se il validatore lo boccia.** Un CV con
+    un'affermazione che il profilo non sostiene non e' un CV imperfetto: e' un
+    CV che non si puo' spedire, e produrlo lo stesso vorrebbe dire rimettere a
+    Filippo il lavoro di rileggerlo riga per riga contro l'originale.
+
+    **Tre transazioni separate**, per la stessa ragione di ``run_pipeline``: fra
+    la lettura e la scrittura ci sono minuti di chiamate LLM e di rendering, e
+    tenere aperta una transazione per tutto quel tempo bloccherebbe le righe su
+    Supabase e impedirebbe al battito di scriversi.
+    """
+    match_id = ctx.payload.get("match_id")
+    if not isinstance(match_id, int):
+        raise TaskError("payload senza match_id", definitivo=True)
+
+    # Import ritardati: Jinja2, Playwright e il client LLM non devono pesare su
+    # un worker che sta solo scrivendo il battito.
+    from .ai.client import get_provider
+    from .config import get_settings
+    from .cv.generate import GenerationError, generate, storage_path_for
+
+    settings = get_settings()
+
+    ctx.avanza(5, "leggo annuncio e profilo")
+    with session_scope() as session:
+        match = session.get(Match, match_id)
+        if match is None:
+            raise TaskError(f"il match {match_id} non esiste", definitivo=True)
+        job = session.get(Job, match.job_id)
+        if job is None:  # pragma: no cover - la FK lo impedisce
+            raise TaskError(f"il match {match_id} punta a un annuncio sparito", definitivo=True)
+
+        salvato = load_profile(session)
+        if salvato is None:
+            raise TaskError("nessun profilo sul database: carica prima un CV", definitivo=True)
+        if not salvato.reviewed:
+            # Stesso guardrail del matching: un profilo non confermato genera un
+            # CV che afferma cose mai rilette da nessuno.
+            raise TaskError(
+                "il profilo non e' stato confermato: aprilo nella pagina CV e premi Conferma",
+                definitivo=True,
+            )
+        profilo = salvato.profile
+        gaps = list(match.gaps or [])
+
+    # Gli oggetti restano leggibili fuori dalla sessione: la factory e'
+    # configurata con expire_on_commit=False proprio per questo.
+    percorso_locale = settings.data_dir / "cv" / f"match-{match_id}.pdf"
+
+    try:
+        risultato = generate(
+            get_provider(settings),
+            profilo,
+            job,
+            percorso_locale,
+            gaps=gaps,
+            settings=settings,
+            avanza=ctx.avanza,
+        )
+    except GenerationError as exc:
+        # Definitivo: il tentativo successivo ripartirebbe dallo stesso profilo e
+        # dallo stesso annuncio. Se il modello ha inventato tre volte di fila
+        # sapendo cosa aveva sbagliato, a cambiare deve essere il profilo o il
+        # prompt, non il numero di tentativi.
+        raise TaskError(str(exc), definitivo=True) from exc
+
+    ctx.avanza(85, "carico il PDF")
+    percorso_remoto = storage_path_for(job.id, profilo)
+    upload(percorso_remoto, risultato.pdf)
+
+    ctx.avanza(95, "salvo")
+    with session_scope() as session:
+        candidatura = _application_per(session, match_id, job)
+        candidatura.cv_storage_path = percorso_remoto[:512]
+        candidatura.cv_payload = risultato.cv.model_dump()
+        candidatura.cv_language = risultato.lingua[:5]
+        candidatura.cv_fit_iterations = risultato.fit.compressioni
+        candidatura.error = None
+        if candidatura.status is ApplicationStatus.DRAFT:
+            # Solo da DRAFT: se la candidatura era gia' approvata o inviata,
+            # rigenerare il CV non deve riportarla indietro nel ciclo di vita.
+            candidatura.status = ApplicationStatus.CV_READY
+        session.flush()
+
+        session.add(
+            ApplicationEvent(
+                application_id=candidatura.id,
+                event_type=ApplicationEventType.CV_GENERATED,
+                occurred_at=utcnow(),
+                note=f"{risultato.pagine} pagina/e, {risultato.lingua}",
+                payload={
+                    "tentativi": risultato.tentativi,
+                    "compressioni": risultato.fit.compressioni,
+                    "densita_pt": risultato.fit.densita.punto,
+                    "llm_calls": risultato.llm_calls,
+                },
+            )
+        )
+
+    log.info(
+        "CV per il match %d: %d pagine, %d tentativi, %d chiamate",
+        match_id,
+        risultato.pagine,
+        risultato.tentativi,
+        risultato.llm_calls,
+    )
+    return {
+        "match_id": match_id,
+        "job_id": job.id,
+        "title": job.title,
+        "company": job.company,
+        "storage_path": percorso_remoto,
+        "language": risultato.lingua,
+        "pages": risultato.pagine,
+        "attempts": risultato.tentativi,
+        "compressions": risultato.fit.compressioni,
+        "llm_calls": risultato.llm_calls,
+        "tokens": risultato.input_tokens + risultato.output_tokens,
+        "top_keywords": list(risultato.cv.top_keywords[:5]),
+        # Detto qui perche' finisce in `task.result` e la dashboard lo mostra.
+        "next": "Rivedi il CV nella pagina dell'annuncio, poi approvalo.",
+    }
+
+
+def _application_per(session: Session, match_id: int, job: Job) -> Application:
+    """La candidatura di questo match, creata se non c'e'.
+
+    Il vincolo di unicita' su ``match_id`` e' l'idempotenza della Fase 7: qui la
+    si rispetta cercando prima e inserendo solo se serve, cosi' rigenerare un CV
+    aggiorna la riga esistente invece di far fallire il task su una violazione
+    di vincolo.
+    """
+    candidatura = session.query(Application).filter(Application.match_id == match_id).one_or_none()
+    if candidatura is not None:
+        return candidatura
+
+    # ``status`` esplicito e non lasciato al ``default=`` del modello. In
+    # SQLAlchemy quel default e' lato Python e lo applica il *flush*: fino ad
+    # allora l'attributo vale ``None``, quindi il controllo "promuovi solo se
+    # e' ancora DRAFT" che sta nel chiamante non scattava mai e ogni CV appena
+    # generato restava `draft`. Effetto visibile: il bottone Approva della
+    # dashboard non si accendeva.
+    candidatura = Application(
+        match_id=match_id,
+        tier=_tier_provvisorio(job),
+        status=ApplicationStatus.DRAFT,
+    )
+    session.add(candidatura)
+    return candidatura
+
+
+def _tier_provvisorio(job: Job) -> ApplicationTier:
+    """Il tier con cui nasce la candidatura.
+
+    Provvisorio di proposito: il router vero e' la Fase 7.1, che guarda anche se
+    il form e' raggiungibile e se serve un login. Qui serve solo perche' la
+    colonna e' NOT NULL, e la scelta piu' onesta a questo punto e' "automatico se
+    l'ATS e' uno dei quattro che sappiamo gia' compilare, assistito altrimenti".
+    """
+    return ApplicationTier.A_AUTO if job.ats_type in TIER_A_ATS else ApplicationTier.B_ASSISTED

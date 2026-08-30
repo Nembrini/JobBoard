@@ -27,7 +27,7 @@ sicurezza dell'intera macchina.
 ### Worker
 
 ```bash
-worker\.venv\Scripts\python.exe -m pytest -q              # 290 test, nessun database
+worker\.venv\Scripts\python.exe -m pytest -q              # 337 test, nessun database
 worker\.venv\Scripts\python.exe -m pytest tests/test_jsearch.py -q
 worker\.venv\Scripts\python.exe -m pytest -q -k "publisher"   # un singolo test
 worker\.venv\Scripts\ruff.exe check . --fix
@@ -49,6 +49,8 @@ fixture.
 .\jb work                         # consumer della coda + battito; --once per un giro solo
 .\jb sources list|enable|boards
 .\jb profile import|load|embed|show
+.\jb cv generate <match-id>       # CV su misura; --no-upload lo lascia solo su disco
+.\jb cv check <file.pdf>          # come lo vedrebbe un parser ATS
 ```
 
 **`--dry-run` non prova la scrittura.** Normalizza e stampa, ma non tocca i vincoli di
@@ -155,6 +157,39 @@ Se `salary_is_stated` è falso, si scrive `n.d.` — mai la stima. Il database c
 `salary_eur_year_*`, che serve a ordinare e confrontare, e alcune fonti offrono una stima
 algoritmica: nessuna delle due finisce mai nella colonna RAL. Una cifra stimata mostrata
 come dichiarata rende inservibile l'unico dato per cui si guarda quella colonna.
+
+### Generazione del CV (`worker/jobboard/cv/`, `ai/tailor.py`, `ai/validator.py`)
+
+**Dal modello passa solo la prosa.** Al generatore si chiedono quattro cose — le cinque
+keyword, il summary, i bullet riscritti, le competenze — e nient'altro. Date, aziende,
+titoli di studio e recapiti li copia il template dal `MasterProfile` e non entrano
+nemmeno nella richiesta: un modello che non tocca le date non può sbagliarle. Per lo
+stesso motivo l'ordine cronologico lo impone `render.py`, non il modello.
+
+**Un id è un'affermazione, non una prova.** Ogni bullet dichiara il `source_id` da cui
+viene e ogni competenza la sua `source`, ma il validatore non si ferma alla provenienza
+dichiarata: verifica anche che **ogni cifra del testo generato compaia nella fonte**. È
+la regola che conta di più — un numero falso su un CV non si recupera in un colloquio.
+
+Due falsi positivi già pagati, entrambi capaci di rendere inutile il validatore, perché
+uno che blocca i CV giusti viene spento:
+
+- **i numeri a lettere.** Il profilo conserva il CV come è scritto ("da sei ore a venti
+  minuti", "dal quaranta all'ottanta percento"), il CV generato usa le cifre. Il
+  vocabolario in `validator.py` traduce entrambi i versi, italiano e inglese. E
+  «per cento» non è il numero cento;
+- **le competenze tradotte.** Un profilo italiano che dichiara "Lavoro in team" produce
+  un CV inglese che dice "Teamwork". Il rimedio non è il match sfocato — con quello
+  `Java` giustificava `JavaScript` — ma la provenienza dichiarata: `text` è come si
+  scrive, `source` è la voce del profilo, confrontata esatta.
+
+**Il loop di fit toglie prima di stringere.** Stringere è gratis, ed è per questo che è
+la tentazione sbagliata. Quanto sfora si misura guardando dove arriva l'ultima riga
+sull'ultima pagina, perché "due pagine" non distingue tre righe di troppo da mezza
+pagina. Ogni compressione ripassa dal validatore: una riscrittura è una generazione.
+
+Il prompt sta in `ai/prompts/cv_writer.md`, in un file a sé perché si possa sostituire
+senza toccare il codice. Non chiedergli quello che il codice già verifica.
 
 ## Lato web (`web/`)
 
