@@ -181,12 +181,20 @@ def test_il_riepilogo_nomina_le_fonti_cadute() -> None:
     """Dire "parziale" senza dire quale manda a confrontare due elenchi a occhio."""
     from jobboard.handlers import _riepilogo
 
-    riepilogo = _riepilogo(_raccolta(), MatchReport(criteria=MatchCriteria()), soglia=65)
+    riepilogo = _riepilogo(
+        _raccolta(),
+        MatchReport(criteria=MatchCriteria()),
+        soglia=65,
+        notifica_annunci=0,
+        notifica_errore=None,
+    )
 
     assert riepilogo["fonti_fallite"] == ["jooble"]
     assert riepilogo["annunci_nuovi"] == 12
     assert riepilogo["chiamate_api"] == 6
     assert riepilogo["soglia"] == 65
+    assert riepilogo["notifica_annunci"] == 0
+    assert riepilogo["notifica_errore"] is None
 
 
 def test_una_raccolta_con_una_fonte_caduta_resta_parziale_non_fallita() -> None:

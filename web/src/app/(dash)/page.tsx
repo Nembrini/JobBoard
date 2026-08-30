@@ -16,8 +16,8 @@ export const metadata = { title: { absolute: "Job Board" } };
  *
  * Server component: legge dal database direttamente, senza far fare a Next.js
  * una richiesta HTTP verso la propria API. La rotta `/api/matches` esiste
- * comunque, per il digest email della Fase 8, ma il primo caricamento non ci
- * passa — sarebbe un giro in piu' su una connessione mobile.
+ * comunque per il drawer e per un client futuro, ma il primo caricamento non
+ * ci passa — sarebbe un giro in piu' su una connessione mobile.
  *
  * Il dettaglio di un annuncio non e' qui: e' `/annuncio/<id>`, intercettata
  * dallo slot `@drawer` del layout. Aprire un annuncio non rifa' quindi le tre

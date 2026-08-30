@@ -82,6 +82,13 @@ class MatchReport:
     #: coincide sempre con ``stage2_top_n``: la riserva puo' trovare meno annunci a
     #: budget di quanti gliene chiederebbe, e in quel caso il totale e' piu' basso.
     stage2_entered: int = 0
+    #: Id degli annunci valutati che **non avevano gia'** una riga ``match`` prima
+    #: di questo salvataggio. La distingue da ``scored`` perche' il digest (Fase
+    #: 8.3) deve segnalare un annuncio una volta sola: un ``--rescore`` che
+    #: ripassa lo stesso annuncio dalla rubrica non deve generare una seconda
+    #: notifica identica alla prima. Valorizzato da :func:`persist`, resta vuoto
+    #: in dry-run perche' senza scrittura "nuovo" non ha risposta.
+    new_job_ids: set[int] = field(default_factory=set)
 
     @property
     def examined(self) -> int:
@@ -304,6 +311,10 @@ def _load_reviewed_profile(
 def persist(session: Session, report: MatchReport) -> int:
     """Scrive i ``match``, un annuncio per riga. Ritorna quante righe ha toccato."""
     esistenti = _existing_matches(session, report)
+    # Va letto **prima** dei tre cicli sotto: scrivono dentro lo stesso dizionario
+    # via `_row`, quindi da quel momento in poi non distingue piu' una riga
+    # che c'era gia' da una appena creata in questa stessa run.
+    report.new_job_ids = _new_scored_ids(report.scored, set(esistenti))
     adesso = dt.datetime.now(dt.UTC)
     toccate = 0
 
@@ -324,6 +335,11 @@ def persist(session: Session, report: MatchReport) -> int:
 
     session.flush()
     return toccate
+
+
+def _new_scored_ids(scored: Sequence[Scored], pre_existing_ids: set[int]) -> set[int]:
+    """Quali valutati non avevano gia' una riga ``match``. Pura, per essere testabile senza DB."""
+    return {s.job.id for s in scored if s.job.id not in pre_existing_ids}
 
 
 def _existing_matches(session: Session, report: MatchReport) -> dict[int, Match]:

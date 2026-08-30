@@ -178,9 +178,8 @@ bottone "Aggiorna adesso", non una nuova.
 
 Il risultato pratico è lo stesso della Fase 8.1/8.2 originale, "esegui appena possibile se
 saltata" compreso — quella parte la dà gratis l'opzione nativa di Task Scheduler, zero
-codice. `apscheduler` resta come dipendenza dichiarata in `pyproject.toml`, non rimossa:
-potrebbe tornare utile per la Fase 8.3 (l'orario del digest email), ma non è più un
-prerequisito per la raccolta giornaliera.
+codice. `apscheduler` resta come dipendenza dichiarata in `pyproject.toml`, non rimossa,
+ma resta anche inutilizzata: la Fase 8.3 (sotto) non ne ha avuto bisogno.
 
 **Il codice pronto non basta se le due attività restano da creare a mano.** Fra Fase
 8.1/8.2 e il primo uso vero è passato del tempo in cui `jb work` non ha mai girato sul PC
@@ -192,6 +191,56 @@ possibile se un avvio pianificato viene ignorato" — perché `schtasks.exe` da 
 comando non la espone: servirebbe un XML di Task Scheduler scritto a mano e non
 verificabile da un sandbox Linux, e un passo in più dichiarato onestamente batte uno
 script che potrebbe fallire in modo poco chiaro sulla macchina di chi lo esegue.
+
+### Il digest email è un effetto di fine run, non un secondo scheduler (Fase 8.3/8.4)
+
+`GET /api/matches` porta un commento, scritto in Fase 4, che prevedeva il digest come uno
+dei suoi client. Costruendo la Fase 8.3 non ha retto: le credenziali SMTP
+(`GMAIL_ADDRESS`/`GMAIL_APP_PASSWORD`) stanno solo in `worker/.env`, non nelle Environment
+Variables di Vercel — coerente con la regola generale che il worker porta segreti e
+comportamento, il database porta i dati. Farebbe quindi il worker a chiamare quella rotta,
+ma da un processo Python senza cookie di sessione Auth.js non c'è modo di superare
+`requireApiSession()`, e aggiungere una seconda via d'accesso (una chiave di servizio, per
+esempio) solo per questo sarebbe una superficie di autenticazione in più per un'esigenza
+che non la richiede affatto: a fine `run_matching()` il worker ha già in memoria, nello
+stesso processo, esattamente i `Match` appena valutati. Il digest (`jobboard.notify`) li
+legge da lì.
+
+**"Nuovo" è `new_job_ids`, non "valutato in questa run".** `pipeline.match.persist()`
+confronta gli id degli annunci valutati con quelli che avevano già una riga `match` prima
+del salvataggio corrente, calcolato una sola volta prima dei tre cicli di scrittura che
+altrimenti lo confonderebbero (`_new_scored_ids`, testato senza sessione come `_row` e
+`_write_stage1`). Senza questa distinzione un `jb match --rescore` — che ripassa dalla
+rubrica anche gli annunci già visti — spedirebbe una seconda notifica identica alla prima
+per lo stesso annuncio.
+
+**Attivazione, soglia e orario vivono in `settings`**, chiave `"notifications"`, stesso
+pattern di `pipeline.criteria` (chiave `"matching"`) e `pipeline.ingest` (chiave
+`"search"`): una riga letta con un default al primo giro, creata dal worker dai valori di
+`.env` (`MATCH_THRESHOLD`, `DAILY_RUN_HOUR`) se non esiste ancora, poi modificabile dalla
+pagina Impostazioni senza riavviare il worker. La differenza rispetto a quei due casi è
+che qui anche il lato web scrive: `lib/notifications.ts` fa lo stesso upsert su chiave
+primaria che il worker farebbe, e la lettura non crea mai la riga da sola — una `GET` non
+deve inserire dati, la crea solo la prima run che la trova mancante.
+
+**L'orario è solo la preferenza registrata, non lo scheduler vero.** Chi decide quando la
+raccolta parte davvero resta l'attività Windows creata da `setup-scheduler.cmd`, fissa alle
+07:00: `schtasks` non ha modo di leggere una riga di Postgres prima di partire, e
+costruire quel ponte (un secondo processo che sveglia `jb work trigger` all'orario
+salvato, sostituendo l'attività fissa) è più macchina di quanta ne serva per una
+preferenza che oggi cambia raramente. La pagina Impostazioni lo dice esplicitamente
+invece di lasciarlo credere: cambiare l'ora qui non sposta l'attività di Task Scheduler,
+serve rilanciare `.\setup-scheduler` con un orario diverso per quello. Se in futuro
+questo diventa una frizione vera, è il punto in cui `apscheduler` — già dichiarato in
+`pyproject.toml`, mai usato — troverebbe finalmente un impiego.
+
+**Una mail non partita non fa fallire la run.** `handlers.run_pipeline` chiama
+`notify.digest.send_digest` fuori dal blocco che può sollevare `TaskError`: raccolta e
+punteggi sono già salvati a quel punto, e un `MailError` (SMTP giù, credenziali scadute)
+diventa un avviso registrato in `task.result` (`notifica_errore`), non un tentativo che
+rifarebbe daccapo raccolta e quaranta chiamate LLM per un problema che riguarda solo
+l'ultimo passo. Stesso principio di `MatchReport.errors` per gli annunci che lo Stadio 2
+non riesce a valutare.
 
 ## 5. Scelte tecniche e motivazioni
 

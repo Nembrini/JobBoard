@@ -8,7 +8,7 @@ Ogni giorno raccoglie annunci da più portali, li confronta con il tuo CV, li or
 compatibilità — e con un click genera un CV su misura per quel singolo annuncio e invia
 la candidatura.
 
-![Stato](https://img.shields.io/badge/stato-Fase%207%20in%20corso-blue)
+![Stato](https://img.shields.io/badge/stato-Fase%208%20in%20corso-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
@@ -132,7 +132,7 @@ browser che devi guardare mentre compila un form — che non può girare su un s
 | 5 · Ponte UI↔worker | ✅ | Coda task, heartbeat, progresso |
 | 6 · Generazione CV | ✅ | Tailoring ACR, validatore anti-invenzione, fit a una pagina |
 | 7 · Candidatura | 🔸 | Router, form precompilato (selettori noti + euristica), guardrail — non ancora provato su un annuncio vero |
-| 8 · Run giornaliera | 🔸 | Raccolta automatica via Task Scheduler — manca digest email e toggle notifiche |
+| 8 · Run giornaliera | 🔸 | Raccolta automatica, digest email, pagina Impostazioni e Cronologia — non ancora provate con un account Gmail vero |
 | 9 · Tracking | ⬜ | Stati, lettura IMAP, classificazione risposte |
 | 10 · Rifinitura | ⬜ | Ricalibrazione, costi API, backup |
 

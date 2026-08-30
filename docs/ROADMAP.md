@@ -386,9 +386,30 @@ inviata" a mano dopo averla spedita davvero.
       stato di alimentazione, e diceva un fatto diverso da quello che sapeva davvero.
       Corretto in `worker-status.tsx`, `cv-panel.tsx` e `task-progress.tsx` per parlare
       del worker, non del PC.
-- [ ] **8.3** Digest email HTML via SMTP Gmail, con i nuovi match sopra soglia e link diretto alla riga sul sito Vercel
-- [ ] **8.4** **Toggle notifiche on/off in UI** nella pagina Impostazioni, persistito in `settings`, insieme a soglia e orario
-- [ ] **8.5** Pagina Run History: esiti, conteggi ed errori per fonte
+- [x] **8.3** Digest email HTML via SMTP Gmail (`jobboard.notify`), con i nuovi match sopra
+      soglia e link diretto a `/annuncio/<id>` sul sito Vercel. Spedito da
+      `handlers.run_pipeline` a fine matching, non da una rotta Vercel: le credenziali SMTP
+      stanno solo in `worker/.env`, e a quel punto il worker ha già in memoria i `Match`
+      appena valutati — nessuna chiamata HTTP verso sé stesso, nessuna sessione da
+      inventare. "Nuovo" è `MatchReport.new_job_ids` (annunci senza una riga `match`
+      precedente), non "valutato in questa run": un `--rescore` non deve rimandare la
+      stessa notifica. Nessuna mail se non c'è un solo annuncio nuovo sopra soglia — il
+      silenzio è l'informazione corretta. Una mail non partita (SMTP giù, credenziali
+      scadute) non fa fallire la run: raccolta e punteggi sono già salvi, l'errore finisce
+      in `task.result.notifica_errore`. Il perché per esteso è in `ARCHITECTURE.md`.
+- [x] **8.4** **Toggle notifiche on/off in UI** nella pagina `/impostazioni`, con soglia e
+      orario, persistiti in `settings` (chiave `"notifications"`) — stesso pattern di
+      `pipeline.criteria` e `pipeline.ingest`. Notifiche **spente di default**, come
+      `DRY_RUN`: la riga nasce dal worker al primo `run_pipeline` utile, dai valori di
+      `.env`; finché quello non è successo la pagina mostra semplicemente quei default,
+      senza scrivere nulla a un semplice caricamento. **L'orario è solo la preferenza
+      registrata**: la raccolta parte davvero all'orario fissato in
+      `setup-scheduler.cmd` (07:00), e la pagina lo dice esplicitamente — cambiarlo qui
+      non risveglia Task Scheduler.
+- [x] **8.5** Pagina `/cronologia` (Run History): la tabella `run`, un blocco per batch e
+      una riga per fonte — esito, annunci raccolti/nuovi/duplicati, chiamate API, errore.
+      Paginata per batch (15 a pagina), non per riga, così una run con nove fonti e una
+      con una sola restano due pagine ugualmente leggibili.
 
 **Verifica (8.1/8.2):** eseguita a mano su Postgres locale — `jb work trigger` due volte
 di fila accoda **un solo** `run_pipeline` (la seconda chiamata trova quello in coda,
@@ -398,8 +419,20 @@ un difetto del meccanismo). `ruff`, `mypy --strict` e la suite (337 test, invari
 funzione richiede un database vero per essere provata, e questo repository non aggiunge
 test a database senza prima costruire la fixture) restano puliti.
 
-**Verifica (8.3-8.5, non ancora fatte):** forzi una run dal telefono e la mail arriva;
-spegni il toggle e non arriva più.
+**Verifica (8.3-8.5):** eseguita in locale senza database né rete, sullo stesso principio
+delle fasi precedenti — `_new_scored_ids`, `build_digest` e `load_notification_settings`
+sono pure una volta tolta la sessione, testate con lo stesso stile `_FakeSession`/
+`_FakeSmtp` di `test_matching.py`. Suite worker: **391 test** (377 + 14 nuove), `ruff`,
+`ruff format` e `mypy --strict` puliti. Lato web: `tsc --noEmit`, `eslint` e `next build`
+puliti con i tipi generati da `next typegen`, incluse le due rotte nuove.
+
+**Resta aperto:** nessuna delle tre è stata provata end-to-end con un account Gmail vero —
+serve una `GMAIL_APP_PASSWORD` reale e un run completo sul PC di Filippo, che questo
+ambiente non ha. Il percorso è verificato fino alla chiamata SMTP compresa, con l'invio
+vero sostituito da un finto nei test. Prima verifica suggerita: forza una run dal
+telefono con il toggle acceso e un annuncio che superi la soglia, controlla che la mail
+arrivi con il link giusto; spegni il toggle e verifica che alla run successiva non arrivi
+più.
 
 ---
 
@@ -431,8 +464,9 @@ un'altra stanza**:
 
 1. Apri l'URL Vercel e fai login con Google. Un account diverso deve essere respinto.
 2. Verifica l'indicatore **worker online**.
-3. Premi "Aggiorna adesso". Entro 30 s parte la run: ingest da tutte le fonti attive,
-   dedup, scoring, riga in `run`, digest inviato.
+3. In `/impostazioni`, accendi il toggle "Digest email". Premi "Aggiorna adesso". Entro
+   30 s parte la run: ingest da tutte le fonti attive, dedup, scoring, riga in `run`
+   (visibile in `/cronologia`), digest inviato se almeno un annuncio nuovo supera la soglia.
 4. Ordina per Match %, apri il drawer del primo risultato, controlla i gap evidenziati.
 5. Premi **Candidati**. Il worker genera il CV: verifica che il PDF sia **di una pagina**,
    si chiami `Filippo_Nembrini_Resume.pdf` e sia scaricabile dal telefono via signed URL.
