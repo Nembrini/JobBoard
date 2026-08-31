@@ -192,6 +192,35 @@ comando non la espone: servirebbe un XML di Task Scheduler scritto a mano e non
 verificabile da un sandbox Linux, e un passo in più dichiarato onestamente batte uno
 script che potrebbe fallire in modo poco chiaro sulla macchina di chi lo esegue.
 
+### L'avvio automatico è un interruttore in `settings`, non un secondo Task Scheduler
+
+"JobBoard - worker" (`jb work --once` ogni minuto) parte incondizionato appena
+`.\setup-scheduler` l'ha creato, e resta così finché qualcuno non lo cancella da Windows —
+`schtasks` non ha modo di leggere una riga di Postgres prima di decidere se agire, lo stesso
+vincolo di "L'orario è solo la preferenza registrata" qui sopra. Quando i bottoni "Aggiorna
+adesso" e "Rivaluta tutto" della dashboard hanno avuto bisogno di un modo per farsi eseguire
+da soli senza che Filippo aprisse un terminale, il meccanismo esisteva già — è lo stesso tick
+di sempre, non uno nuovo — mancava solo un modo per fermarlo dalla dashboard senza cancellare
+l'attività: `jobboard.queue_settings`, chiave `"auto_worker"`, stesso pattern di
+`notify.settings` e `tracking.settings`, letta da `commands.worker` prima di reclamare un
+task quando invocato con `--once`.
+
+**Acceso di default, l'unica delle tre a esserlo.** Notifiche e tracciamento partono spenti
+perché accendono un'azione nuova che prima non esisteva — una mail, una lettura IMAP — e un
+default acceso sarebbe stata una sorpresa. Qui è l'opposto: chi ha già eseguito
+`.\setup-scheduler` conta da tempo su quel tick per la raccolta di ogni mattina, e questo file
+non introduce niente che prima non ci fosse — nasce solo per poterlo fermare. Un default
+spento avrebbe interrotto in silenzio, al primo deploy, un'automazione già in uso.
+
+**Il controllo sta in `commands.worker`, non in `queue.claim`.** `claim()` resta quello che
+serve sia a `--once` sia a `serve()` — la lettura della coda con `FOR UPDATE SKIP LOCKED`,
+niente di più — perché un `jb work` lanciato a mano in un terminale è un'azione esplicita di
+Filippo e non deve fermarsi per un interruttore pensato per il tick automatico. Con
+l'interruttore spento, `--once` non scrive nemmeno il battito: l'indicatore online/offline
+deve restare vero al significato che ha in dashboard — "un bottone premuto verrà preso in
+carico a breve" — e con l'avvio automatico fermo quello non è più vero finché qualcuno non
+rilancia `jb work` a mano.
+
 ### Il digest email è un effetto di fine run, non un secondo scheduler (Fase 8.3/8.4)
 
 `GET /api/matches` porta un commento, scritto in Fase 4, che prevedeva il digest come uno

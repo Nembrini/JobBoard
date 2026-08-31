@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { autoWorkerSettingsSchema, saveAutoWorkerSettings } from "@/lib/auto-worker-settings";
 import { requireApiSession } from "@/lib/dal";
 import { notificationSettingsSchema, saveNotificationSettings } from "@/lib/notifications";
 import { saveTrackingSettings, trackingSettingsSchema } from "@/lib/tracking-settings";
@@ -40,6 +41,22 @@ export async function salvaTracciamento(dati: unknown): Promise<Esito> {
 
   try {
     await saveTrackingSettings(esito.data);
+  } catch (errore) {
+    return { ok: false, errore: errore instanceof Error ? errore.message : "salvataggio fallito" };
+  }
+
+  revalidatePath("/impostazioni");
+  return { ok: true };
+}
+
+export async function salvaAvvioAutomatico(dati: unknown): Promise<Esito> {
+  if (!(await requireApiSession())) return { ok: false, errore: "non autorizzato" };
+
+  const esito = autoWorkerSettingsSchema.safeParse(dati);
+  if (!esito.success) return { ok: false, errore: esito.error.issues[0]?.message ?? "dati non validi" };
+
+  try {
+    await saveAutoWorkerSettings(esito.data);
   } catch (errore) {
     return { ok: false, errore: errore instanceof Error ? errore.message : "salvataggio fallito" };
   }
