@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, max, sql } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { run, source, type RunStatus } from "@/db/schema";
@@ -43,7 +43,11 @@ export type RunHistoryRow = {
 
 export type RunBatch = {
   batchId: string;
-  startedAt: Date;
+  //  `null` solo in teoria: un batch che finisce in questo elenco ha sempre
+  // almeno una riga, quindi `max(started_at)` su quel gruppo non può essere
+  // vuoto. Resta nel tipo perché è quello che l'aggregato di drizzle dichiara
+  // — vedi la nota sopra `maxStartedAt` in `getRunHistory`.
+  startedAt: Date | null;
   rows: RunHistoryRow[];
 };
 
@@ -68,14 +72,21 @@ export async function getRunHistory(page = 1): Promise<RunHistoryPage> {
   const pageCount = Math.max(1, Math.ceil(totalBatches / PER_PAGE));
   const paginaValida = Math.min(Math.max(1, page), pageCount);
 
+  // `max(run.startedAt)` invece di un `sql<Date>` grezzo: il secondo è solo
+  // un'annotazione TypeScript — non passa dal decoder della colonna, quindi a
+  // runtime il driver può restituire il valore com'è arrivato dal database
+  // invece che come `Date`, ed `Intl.DateTimeFormat` in `dataOra` esplode con
+  // "Invalid time value". L'aggregato tipizzato di drizzle segue lo stesso
+  // percorso di decodifica della colonna vera.
+  const maxStartedAt = max(run.startedAt);
   const batchStarts = await db
     .select({
       batchId: run.batchId,
-      startedAt: sql<Date>`max(${run.startedAt})`.as("started_at"),
+      startedAt: maxStartedAt.as("started_at"),
     })
     .from(run)
     .groupBy(run.batchId)
-    .orderBy(desc(sql`max(${run.startedAt})`))
+    .orderBy(desc(maxStartedAt))
     .limit(PER_PAGE)
     .offset((paginaValida - 1) * PER_PAGE);
 
