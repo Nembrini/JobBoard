@@ -1053,6 +1053,62 @@ automatica non è una revisione. Se l'accodamento fallisce, il file appena caric
 viene rimosso dal bucket — altrimenti resterebbe un PDF che nessuna riga del
 database nomina.
 
+## 11ter. Rifinitura: dashboard costi e backup (Fase 10)
+
+**Il consumo si registra come aggregato, non come chiamata.** `llm_usage_log` prende
+una riga per ogni volta che un gestore finisce di parlare con l'LLM — una run di
+matching (fino a un centinaio di chiamate allo Stadio 2), una generazione di CV
+(uno o più tentativi del loop di fit), una lettura di profilo, un giro di
+classificazione email — non una riga per singola chiamata al modello. Quegli
+aggregati (`MatchReport.llm_calls`/`.input_tokens`, `GeneratedCV.llm_calls`, ...)
+il codice li calcola già da soli per il proprio riepilogo in `task.result`;
+sommarli di nuovo riga per riga in `llm_usage_log` non aggiungerebbe un dato in
+più, solo righe da paginare per una dashboard che li rilegge.
+
+**Il prezzo è "n.d." finché non lo si registra a mano, mai una stima nel codice.**
+Vale la stessa regola della RAL non dichiarata (§1): un listino sbagliato è peggio
+di nessun listino, perché sembra un dato invece di un'invenzione. Ha reso il
+problema concreto il fatto che questa fase è arrivata dopo un cambio di modelli —
+`config.py` nomina oggi `gemini-3.5-flash-lite` e `gemini-3.6-flash`, successivi a
+questo codice — quindi qualunque prezzo scritto a memoria in un commit sarebbe
+stato una supposizione su un listino mai verificato. `jb costs price set` lo
+registra leggendolo dalla console del provider attivo (l'unico posto dove è
+verificabile davvero, e cambia nel tempo), in una riga `settings` — stesso
+pattern di `notify.settings`/`tracking.settings` — non nel codice.
+
+**Nessun monitoraggio automatico di Supabase/Vercel.** Il rischio "free tier
+esaurito" in §12 resta mitigato guardando le rispettive console: automatizzarlo
+avrebbe richiesto un token API in più per ciascuno dei due servizi, nessuno dei
+quali è fra i Prerequisiti (ROADMAP.md) — un costo di configurazione per un
+rischio che una run giornaliera regolare, che tiene Supabase sveglio da sola, già
+rende improbabile.
+
+**Il backup è CSV, non `pg_dump`.** Un dump binario sarebbe un ripristino più
+fedele, ma richiede il client Postgres installato sulla macchina che lo esegue —
+su Windows non è garantito, e questo progetto ha già scelto Python 3.12 apposta
+per evitare dipendenze di sistema fragili (§5, `onnxruntime`/`fastembed`). Un CSV
+per tabella lo scrive `csv` della libreria standard, si apre in Excel per un
+controllo al volo, e un `json.loads` rilegge le colonne JSONB se mai servisse un
+ripristino a mano. Le colonne binarie (`profile.embedding`, `job.embedding`)
+restano fuori: sono ricalcolabili al prossimo `jb match`, e in un CSV
+diventerebbero solo byte illeggibili che gonfiano ogni backup senza permettere
+niente in più.
+
+**Solo su disco locale, per scelta e non per omissione.** Un bucket Supabase
+Storage dedicato ai backup avrebbe richiesto un passo manuale in più di Filippo
+sulla console (come è stato per `resumes`, §0.2) prima ancora di scrivere una
+riga di codice. La cartella `data/backups/` è già quella con CV e screenshot: zero
+credenziali nuove, zero passi di setup in più, a costo di non avere una copia
+fuori dal PC di casa — lo stesso compromesso già accettato per l'intero worker
+(vedi "il PC spento" in §12). Se in futuro servirà una copia remota, la funzione
+pura che scrive i CSV (`write_csv_backup`) non cambia: cambia solo dove va a
+finire l'archivio.
+
+**La rotazione conta i file, non i giorni.** Uno scenario già in §12 — il PC di
+casa spento per settimane — non deve lasciare zero backup solo perché l'ultimo
+supera una soglia di età. `rotate_backups` tiene sempre gli ultimi
+`BACKUP_KEEP_COUNT` (default 14), qualunque sia la data dell'ultimo.
+
 ## 12. Rischi noti e mitigazioni
 
 | Rischio | Mitigazione |
@@ -1063,8 +1119,9 @@ database nomina.
 | `onnxruntime` / `fastembed` senza wheel su Windows | Motivo per cui si usa Python 3.12; fallback su embedding API (Voyage) dietro la stessa interfaccia |
 | I selettori noti (Tier A) o l'euristica (Tier B) non trovano un campo, o un ATS cambia il markup | Un campo non trovato non blocca la preparazione — resta nell'elenco "campi non trovati" del risultato — e lo stop prima del submit è comunque una revisione umana obbligatoria come ultima rete: nessun form parte senza che tu l'abbia guardato |
 | `MasterProfile` estratto male avvelena tutto a valle | Revisione manuale obbligatoria in Fase 1.3 prima di procedere |
-| Free tier Supabase/Vercel esauriti o in pausa | Con una run giornaliera Supabase non va mai in pausa; il consumo si monitora in Fase 10.2 |
+| Free tier Supabase/Vercel esauriti o in pausa | Con una run giornaliera Supabase non va mai in pausa; si monitora dalle rispettive console (nessun token API in più per farlo dal codice, vedi §11ter) |
 | Gmail IMAP/SMTP richiede 2FA + App Password | Documentato nel README; il tracking automatico è l'ultima fase e non blocca nulla |
+| Il database cresce senza una copia fuori dal PC di casa | `jb backup run` (Fase 10.3) esporta ogni tabella su disco ogni notte; restare solo locale è una scelta esplicita, vedi §11ter |
 
 ## 13. Layout del repository
 
@@ -1077,18 +1134,20 @@ Job Board/
       sources/               base.py + un modulo per adapter
       pipeline/              ingest, normalize, dedup, salary, text
                              criteria, filters, bm25, rank, match
-      ai/                    client, embeddings, rubric, validator, prompts/
+      ai/                    client, embeddings, rubric, validator, prompts/, pricing.py
       cv/                    templates/, render.py, fit.py
       apply/                 router, fields, selectors (Tier A), heuristics (Tier B), browser, guardrails
       notify/                email_digest, imap_reader, classifier
+      store/                 profile.py, llm_usage.py (Fase 10.2)
+      backup.py              esportazione CSV del database, con rotazione (Fase 10.3)
     alembic/
     pyproject.toml
   web/                       Next.js 16 -> Vercel
     src/auth.ts              Auth.js: Google + allowlist a una email
     src/proxy.ts             redirect ottimistico (ex middleware.ts)
-    src/app/                 page.tsx, login/, api/matches/, api/auth/
-    src/components/          tabella, drawer, filtri, badge, azioni di riga
-    src/lib/                 dal.ts (sessione), queries.ts, filters.ts, format.ts
+    src/app/                 page.tsx, login/, api/matches/, api/auth/, (dash)/costi/
+    src/components/          tabella, drawer, filtri, badge, azioni di riga, costs-table.tsx
+    src/lib/                 dal.ts (sessione), queries.ts, filters.ts, format.ts, costs.ts
     src/db/schema.ts         generato da: jobboard gen-web-schema
     src/db/supabase-ca.ts    radice TLS del pooler, fissata
   docs/                      questo documento + ROADMAP.md

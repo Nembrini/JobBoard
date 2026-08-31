@@ -14,13 +14,14 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin, default_sql, enum_column
-from .enums import RunStatus, TaskStatus, TaskType
+from .enums import LlmUsagePurpose, RunStatus, TaskStatus, TaskType
 
 
 class Task(Base, TimestampMixin):
@@ -121,6 +122,51 @@ class Run(Base):
         Integer, nullable=False, default=0, server_default=default_sql("0")
     )
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class LLMUsageLog(Base):
+    """Consumo LLM, per la dashboard dei costi (Fase 10.2).
+
+    Una riga per **invocazione aggregata** — una run di matching, una
+    generazione CV, una ristrutturazione di profilo, un giro di
+    classificazione email — non una per singola chiamata al modello: sono
+    gia' questi gli aggregati che pipeline e gestori calcolano da soli
+    (``MatchReport``, ``GeneratedCV``, ...; vedi il commento su
+    :class:`~jobboard.ai.client.LLMUsage`), e risommarli riga per riga qui non
+    aggiungerebbe un dato in piu', solo righe da paginare.
+
+    Registrata da :func:`jobboard.store.llm_usage.record_llm_usage`, letta sia
+    da ``jb costs show`` sia dalla dashboard (``web/src/lib/costs.ts``).
+    """
+
+    __tablename__ = "llm_usage_log"
+    __table_args__ = (Index("ix_llm_usage_log_occurred", "occurred_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    occurred_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    purpose: Mapped[LlmUsagePurpose] = enum_column(LlmUsagePurpose, nullable=False)
+    #: Libero e non un enum: i modelli cambiano piu' spesso degli scopi (vedi
+    #: ``config.Settings.model_scoring`` e affini), e un CHECK da aggiornare a
+    #: ogni cambio di modello sarebbe un vincolo che protegge da niente.
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    calls: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=default_sql("1")
+    )
+    input_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=default_sql("0")
+    )
+    output_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=default_sql("0")
+    )
+    #: Il match o la candidatura a cui si riferisce una riga puntuale (es.
+    #: ``cv_tailor``); nullo per un aggregato che ne copre decine (es.
+    #: ``match_scoring``), dove non c'e' un id solo da indicare.
+    reference_id: Mapped[int | None] = mapped_column(Integer)
+    #: Lega le righe della stessa raccolta, come ``run.batch_id``. Nullo per
+    #: gli scopi che non nascono da un batch di ``pipeline.ingest``.
+    batch_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class Setting(Base, TimestampMixin):

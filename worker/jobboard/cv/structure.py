@@ -14,7 +14,7 @@ import re
 import unicodedata
 from typing import Any
 
-from ..ai import LLMProvider, get_provider
+from ..ai import LLMProvider, LLMUsage, get_provider
 from ..schemas import MasterProfile
 from .extract import ExtractedDocument
 
@@ -58,11 +58,12 @@ def structure(
     *,
     provider: LLMProvider | None = None,
     model: str | None = None,
-) -> tuple[MasterProfile, list[str]]:
+) -> tuple[MasterProfile, list[str], LLMUsage]:
     """Struttura il CV estratto.
 
-    Ritorna il profilo e la lista di **avvertimenti** da mostrare in revisione:
-    non sono errori, sono i punti dove vale la pena che un umano guardi.
+    Ritorna il profilo, la lista di **avvertimenti** da mostrare in revisione
+    (non sono errori, sono i punti dove vale la pena che un umano guardi) e il
+    consumo della chiamata, per la dashboard dei costi della Fase 10.2.
     """
     llm = provider or get_provider()
 
@@ -81,7 +82,7 @@ def structure(
 
     data = _assign_ids(_normalize(result.value))
     profile = MasterProfile.model_validate(data)
-    return profile, _warnings(profile, document)
+    return profile, _warnings(profile, document), result.usage
 
 
 def _normalize(data: dict[str, Any]) -> dict[str, Any]:

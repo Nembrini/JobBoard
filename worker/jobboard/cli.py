@@ -18,7 +18,9 @@ from rich.table import Table
 from . import __version__
 from .commands import (
     apply_app,
+    backup_app,
     candidate_app,
+    costs_app,
     cv_app,
     email_app,
     ingest_command,
@@ -66,6 +68,8 @@ app.add_typer(cv_app)
 app.add_typer(apply_app)
 app.add_typer(work_app)
 app.add_typer(email_app)
+app.add_typer(costs_app)
+app.add_typer(backup_app)
 app.command(name="ingest")(ingest_command)
 app.command(name="match")(match_command)
 console = Console()
@@ -142,6 +146,7 @@ def doctor(
     behaviour.add_row("MATCH_THRESHOLD", str(settings.match_threshold))
     behaviour.add_row("DAILY_RUN_HOUR", f"{settings.daily_run_hour:02d}:00")
     behaviour.add_row("TASK_POLL_SECONDS", str(settings.task_poll_seconds))
+    behaviour.add_row("BACKUP_KEEP_COUNT", str(settings.backup_keep_count))
     console.print(behaviour)
 
     if check_db:

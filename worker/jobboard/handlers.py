@@ -27,11 +27,12 @@ from .models.enums import (
     ApplicationEventType,
     ApplicationStatus,
     ApplicationTier,
+    LlmUsagePurpose,
     RunStatus,
     TaskType,
 )
 from .queue import Contesto, TaskError, handler
-from .store import load_candidate, load_profile, save_profile
+from .store import load_candidate, load_profile, record_llm_usage, save_profile
 from .store.objects import download, upload
 
 if TYPE_CHECKING:
@@ -92,7 +93,7 @@ def reparse_profile(ctx: Contesto) -> dict[str, Any]:
             )
 
         ctx.avanza(45, f"{documento.char_count} caratteri estratti, struttura in corso")
-        profilo, avvisi = structure(documento)
+        profilo, avvisi, usage = structure(documento)
 
         ctx.avanza(80, "calcolo il vettore del profilo")
         embedder = get_embedder()
@@ -111,6 +112,14 @@ def reparse_profile(ctx: Contesto) -> dict[str, Any]:
                 # Il nome vero del file caricato, non quello del temporaneo.
                 source_file_name=nome[:255],
                 source_storage_path=percorso[:512],
+            )
+            record_llm_usage(
+                session,
+                purpose=LlmUsagePurpose.CV_STRUCTURE,
+                model=usage.model,
+                calls=1,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
             )
 
     log.info("profilo rigenerato da %s (%d avvisi)", nome, len(avvisi))
@@ -182,6 +191,15 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
                 session,
                 default_threshold=settings.match_threshold,
                 default_hour=settings.daily_run_hour,
+            )
+            record_llm_usage(
+                session,
+                purpose=LlmUsagePurpose.MATCH_SCORING,
+                model=settings.model_scoring,
+                calls=valutazione.llm_calls,
+                input_tokens=valutazione.input_tokens,
+                output_tokens=valutazione.output_tokens,
+                batch_id=raccolta.batch_id,
             )
     except MatchingError as exc:
         # Manca il profilo o non e' stato confermato. Il messaggio e' gia'
@@ -389,6 +407,16 @@ def generate_cv(ctx: Contesto) -> dict[str, Any]:
             # rigenerare il CV non deve riportarla indietro nel ciclo di vita.
             candidatura.status = ApplicationStatus.CV_READY
         session.flush()
+
+        record_llm_usage(
+            session,
+            purpose=LlmUsagePurpose.CV_TAILOR,
+            model=settings.model_cv,
+            calls=risultato.llm_calls,
+            input_tokens=risultato.input_tokens,
+            output_tokens=risultato.output_tokens,
+            reference_id=match_id,
+        )
 
         session.add(
             ApplicationEvent(
@@ -798,6 +826,9 @@ def run_email_check(
         raise TaskError(str(exc), definitivo=True) from exc
 
     esiti: dict[int, list[tuple[EmailHeader, EmailClass, str]]] = {}
+    chiamate_llm = 0
+    token_in = 0
+    token_out = 0
     try:
         since_globale = min(c.since for c in contesti)
         headers = mailbox.search_since(since_globale)
@@ -824,6 +855,9 @@ def run_email_check(
                     body=corpo,
                     model=settings.model_classify,
                 )
+                chiamate_llm += 1
+                token_in += risultato.usage.input_tokens
+                token_out += risultato.usage.output_tokens
                 classificate.append(
                     (intestazione, risultato.value.classification, risultato.value.summary)
                 )
@@ -844,6 +878,15 @@ def run_email_check(
     promemoria_dovuti: list[Any] = []
 
     with session_scope() as session:
+        record_llm_usage(
+            session,
+            purpose=LlmUsagePurpose.EMAIL_CLASSIFY,
+            model=settings.model_classify,
+            calls=chiamate_llm,
+            input_tokens=token_in,
+            output_tokens=token_out,
+        )
+
         for application_id, classificate in esiti.items():
             riga = session.get(Application, application_id)
             if riga is None:  # pragma: no cover - difensivo, non sparisce fra le due sessioni

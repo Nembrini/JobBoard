@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     daily_run_hour: int = 7
     task_poll_seconds: int = 30
     heartbeat_seconds: int = 30
+    #: Quanti archivi di ``jb backup run`` tenere in ``data/backups/`` (Fase 10.3).
+    #: Per conteggio, non per eta': un PC spento per settimane non deve
+    #: ritrovarsi a zero backup solo perche' l'ultimo e' "vecchio".
+    backup_keep_count: int = 14
 
     #: URL pubblico della dashboard, usato nei link del digest email.
     public_app_url: str = "https://job-board-official.vercel.app"

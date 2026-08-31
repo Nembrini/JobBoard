@@ -33,6 +33,7 @@ export type ApplicationStatus = "draft" | "cv_ready" | "approved" | "needs_human
 export type ApplicationTier = "a_auto" | "b_assisted" | "c_manual";
 export type AtsType = "greenhouse" | "lever" | "ashby" | "workable" | "recruitee" | "smartrecruiters" | "workday" | "taleo" | "other" | "unknown";
 export type ContractType = "permanent" | "fixed_term" | "contract" | "internship" | "apprenticeship" | "part_time" | "unknown";
+export type LlmUsagePurpose = "match_scoring" | "cv_structure" | "cv_tailor" | "email_classify";
 export type MatchStatus = "new" | "seen" | "shortlist" | "hidden" | "applied";
 export type RunStatus = "running" | "ok" | "partial" | "failed";
 export type SalaryPeriod = "hourly" | "daily" | "monthly" | "yearly";
@@ -107,6 +108,20 @@ export const job = pgTable("job", {
 });
 export type JobRow = typeof job.$inferSelect;
 export type NewJob = typeof job.$inferInsert;
+
+export const llmUsageLog = pgTable("llm_usage_log", {
+  id: serial("id").primaryKey(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  purpose: varchar("purpose", { length: 32 }).$type<LlmUsagePurpose>().notNull(),
+  model: varchar("model", { length: 64 }).notNull(),
+  calls: integer("calls").notNull().default(1),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  referenceId: integer("reference_id"),
+  batchId: varchar("batch_id", { length: 36 }),
+});
+export type LlmUsageLogRow = typeof llmUsageLog.$inferSelect;
+export type NewLlmUsageLog = typeof llmUsageLog.$inferInsert;
 
 export const profile = pgTable("profile", {
   id: serial("id").primaryKey(),
