@@ -151,6 +151,17 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
     Supabase per i cinque minuti buoni della rubrica LLM, e il battito che non
     riesce a scriversi: l'indicatore in testata direbbe "offline" proprio mentre
     il worker sta lavorando.
+
+    ``payload["rescore"]`` e' quello che distingue "Aggiorna adesso" da
+    "Rivaluta tutto" in dashboard: senza, ``run_matching`` valuta solo gli
+    annunci che non erano ancora arrivati allo Stadio 2 (vedi
+    ``filters.candidates``), quindi un annuncio gia' valutato prima di un
+    cambio di filtri o profilo resta con il punteggio vecchio. Con
+    ``rescore=True`` li ripassa tutti dalla rubrica — e' la stessa spesa di
+    ``jb match --rescore`` da terminale, chiesta col click invece che dal PC
+    del worker. Il digest non duplica le notifiche in nessuno dei due casi:
+    distingue gia' da solo un annuncio davvero nuovo da uno rivalutato (vedi
+    ``notify.digest``).
     """
     # Import ritardati come sopra: fastembed e il client LLM non devono pesare
     # su un worker che sta solo scrivendo il battito.
@@ -163,6 +174,7 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
     from .pipeline.progress import fascia
 
     settings = get_settings()
+    rescore = bool(ctx.payload.get("rescore", False))
 
     ctx.avanza(2, "raccolgo dalle fonti attive")
     with session_scope() as session:
@@ -183,10 +195,17 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
         raccolta.api_calls,
     )
 
-    ctx.avanza(57, f"{raccolta.persisted_new} annunci nuovi, valuto la compatibilita'")
+    messaggio_stadio2 = (
+        "rivaluto tutti gli annunci attivi"
+        if rescore
+        else f"{raccolta.persisted_new} annunci nuovi, valuto la compatibilita'"
+    )
+    ctx.avanza(57, messaggio_stadio2)
     try:
         with session_scope() as session:
-            valutazione = run_matching(session, dry_run=False, progress=fascia(ctx.avanza, 57, 100))
+            valutazione = run_matching(
+                session, rescore=rescore, dry_run=False, progress=fascia(ctx.avanza, 57, 100)
+            )
             notifiche = load_notification_settings(
                 session,
                 default_threshold=settings.match_threshold,
