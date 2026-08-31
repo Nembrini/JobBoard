@@ -28,7 +28,7 @@ dell'intera macchina.
 ### Worker
 
 ```bash
-worker\.venv\Scripts\python.exe -m pytest -q              # 377 test, nessun database
+worker\.venv\Scripts\python.exe -m pytest -q              # 474 test, nessun database
 worker\.venv\Scripts\python.exe -m pytest tests/test_jsearch.py -q
 worker\.venv\Scripts\python.exe -m pytest -q -k "publisher"   # un singolo test
 worker\.venv\Scripts\ruff.exe check . --fix
@@ -52,6 +52,7 @@ fixture.
 .\jb work trigger                 # accoda un run_pipeline, per Task Scheduler (Fase 8.1/8.2)
 .\jb sources list|enable|boards
 .\jb profile import|load|embed|show
+.\jb info show|add|remove|clear   # pool di informazioni applicante (facoltativo per la Fase 6)
 .\jb cv generate <match-id>       # CV su misura; --no-upload lo lascia solo su disco
 .\jb cv check <file.pdf>          # come lo vedrebbe un parser ATS
 .\jb apply send <match-id>        # apre il form nel browser, lo compila, si ferma prima del submit
@@ -139,6 +140,15 @@ Due principi che il codice applica ovunque e che vanno preservati:
 Conseguenza sulle soglie: con vari criteri a 50, un annuncio davvero buono si ferma sotto
 70. Le fasce in `web/src/lib/format.ts` (60/45) sono basse di proposito.
 
+**Il filtro sulla città è l'eccezione voluta alla prima regola.** `home_city` (da
+`candidate_profile.city`, altrimenti `master_profile.contact.city`) scarta un annuncio
+**dichiarato** in una città diversa dalla tua, a meno che non sia remoto —
+`filters._city_reject`. Un annuncio che *non dichiara* la città non viene scartato (quello
+resta uguale al resto dell'imbuto), ma qui è la lista degli ammessi a essere implicita e
+non esplicita, al contrario del filtro sul paese: senza, la dashboard si riempiva di
+annunci on-site in città che non erano mai state una destinazione plausibile. Spegnibile
+da `restrict_to_home_city` in `settings` per chi preferisce vederli comunque.
+
 ### Fonti (`worker/jobboard/sources/`)
 
 Un adapter fa **una cosa sola**: interroga la sua API e restituisce dei `RawJob`. Non
@@ -197,6 +207,18 @@ pagina. Ogni compressione ripassa dal validatore: una riscrittura è una generaz
 
 Il prompt sta in `ai/prompts/cv_writer.md`, in un file a sé perché si possa sostituire
 senza toccare il codice. Non chiedergli quello che il codice già verifica.
+
+**Il pool di informazioni applicante è materiale in più, non un secondo `MasterProfile`.**
+`jobboard.schemas.applicant_info.ApplicantInfoBank` è una lista libera di fatti veri non
+(ancora) dentro il CV rivisto — una disponibilità, un risultato citato solo a voce, una
+certificazione. La Fase 6 lo riceve **in aggiunta** al profilo (blocco a parte nel prompt,
+solo se non vuoto) e il modello ne sceglie al massimo tre, *solo se pertinenti per
+quell'annuncio*, in `TailoredCV.additional_info`. Vale la stessa regola 1+2 del resto:
+`source_id` deve esistere nel pool e ogni cifra deve comparire nella voce citata —
+`ai/validator._verifica_informazioni_aggiuntive`, la quarta regola del validatore. Gestito
+da `jb info` o dalla sezione **Informazioni applicante** nella pagina CV, con un bottone che
+propone le voci derivabili da certificazioni e progetti del CV rivisto e non ancora salvate
+nel pool — derivazione deterministica, senza chiamata LLM.
 
 ### Candidatura (`worker/jobboard/apply/`)
 
@@ -275,6 +297,12 @@ l'altra.** Il Pydantic ha `extra="forbid"`, quindi lo Zod usa `strictObject`.
 Gli `id` delle voci sono chiavi stabili: il validatore anti-invenzione della Fase 6 le userà
 per dire *quale* voce del CV giustifica una frase di quello generato. Si assegnano alla
 creazione e non si modificano.
+
+Stessa coppia, stesso motivo, per il pool di informazioni applicante:
+`worker/jobboard/schemas/applicant_info.py` e `web/src/lib/applicant-info.ts` descrivono
+`ApplicantInfoBank`. Anche qui gli `id` sono chiavi stabili — è quello che la quarta regola
+del validatore usa per risalire alla voce del pool che giustifica una frase di
+`additional_info`.
 
 ### `.env`: il commento che diventa il valore
 

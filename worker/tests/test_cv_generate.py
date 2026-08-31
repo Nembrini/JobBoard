@@ -15,7 +15,21 @@ from jobboard.ai.tailor import LINGUA_PREDEFINITA, TailoredCV, build_prompt, lan
 from jobboard.ai.validator import feedback, numeri, validate
 from jobboard.cv.generate import GenerationError, file_name, generate, storage_path_for
 from jobboard.cv.render import DENSITA, HEADINGS, build_html, extract_text, page_count
+from jobboard.schemas import ApplicantInfoBank, ApplicantInfoItem
 from tests.conftest_cv import CV_ONESTO, ProviderFinto, annuncio, cv, profilo
+
+
+def _pool(**overrides: object) -> ApplicantInfoBank:
+    voce = ApplicantInfoItem(
+        **{
+            "id": "disponibilita-trasferte",
+            "label": "Disponibilità",
+            "text": "Disponibile a trasferte fino a tre giorni al mese.",
+            **overrides,
+        }
+    )
+    return ApplicantInfoBank(items=[voce])
+
 
 # --- il caso normale ----------------------------------------------------------
 
@@ -159,6 +173,63 @@ def test_una_soft_skill_tradotta_passa_se_dichiara_l_originale() -> None:
     """Senza questo, la Fase 6.7 e la 6.2 si escluderebbero a vicenda."""
     buono = cv(skills={"hard": [], "soft": [{"text": "Teamwork", "source": "Lavoro in team"}]})
     assert validate(buono, profilo()) == []
+
+
+# --- regola 4: additional_info segue le regole 1 e 2, contro il pool ----------
+
+
+def test_una_voce_aggiuntiva_con_fonte_vera_passa() -> None:
+    buono = cv(
+        additional_info=[
+            {
+                "source_id": "disponibilita-trasferte",
+                "text": "Available for up to 3 days of travel a month.",
+            }
+        ]
+    )
+    assert validate(buono, profilo(), _pool()) == []
+
+
+def test_una_voce_aggiuntiva_senza_pool_e_una_violazione() -> None:
+    """Nessun pool passato al validatore: qualunque source_id citato e' inventato."""
+    guasto = cv(additional_info=[{"source_id": "disponibilita-trasferte", "text": "Cose."}])
+    violazioni = validate(guasto, profilo(), None)
+    assert [v.regola for v in violazioni] == ["informazione-inesistente"]
+
+
+def test_una_voce_aggiuntiva_con_id_inesistente_nel_pool_e_una_violazione() -> None:
+    guasto = cv(additional_info=[{"source_id": "id-mai-visto", "text": "Cose."}])
+    violazioni = validate(guasto, profilo(), _pool())
+    assert [v.regola for v in violazioni] == ["informazione-inesistente"]
+
+
+def test_una_cifra_inventata_in_una_voce_aggiuntiva_e_una_violazione() -> None:
+    guasto = cv(
+        additional_info=[
+            {
+                "source_id": "disponibilita-trasferte",
+                "text": "Available for up to 10 days of travel a month.",
+            }
+        ]
+    )
+    violazioni = validate(guasto, profilo(), _pool())
+    assert [v.regola for v in violazioni] == ["cifra-inventata"]
+    assert "10" in violazioni[0].dettaglio
+
+
+def test_il_summary_puo_citare_un_numero_della_voce_aggiuntiva() -> None:
+    """Il pool entra nel confronto dei numeri del summary, non solo dei bullet."""
+    buono = cv(summary="Backend developer available for up to 3 days of travel a month in Python.")
+    assert validate(buono, profilo(), _pool()) == []
+
+
+def test_il_prompt_include_il_pool_solo_se_non_vuoto() -> None:
+    con_pool = build_prompt(profilo(), annuncio(), applicant_info=_pool())
+    assert "[id: disponibilita-trasferte]" in con_pool
+    assert "INFORMAZIONI APPLICANTE" in con_pool
+
+    senza_pool = build_prompt(profilo(), annuncio(), applicant_info=ApplicantInfoBank())
+    assert "INFORMAZIONI APPLICANTE" not in senza_pool
 
 
 # --- correzione ---------------------------------------------------------------

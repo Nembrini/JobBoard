@@ -35,7 +35,15 @@ from jobboard.pipeline.criteria import MatchCriteria, derive_seniority, experien
 from jobboard.pipeline.filters import apply_filters
 from jobboard.pipeline.match import Scored, _new_scored_ids, _row, _write_stage1, select_finalists
 from jobboard.pipeline.rank import Ranked
-from jobboard.schemas import Bullet, Contact, Experience, MasterProfile, Project, Skills
+from jobboard.schemas import (
+    Bullet,
+    CandidateAnswers,
+    Contact,
+    Experience,
+    MasterProfile,
+    Project,
+    Skills,
+)
 
 NOW = dt.datetime(2026, 8, 28, tzinfo=dt.UTC)
 
@@ -261,6 +269,69 @@ def test_remote_job_escapes_the_market_filter_but_not_sponsorship() -> None:
 def test_market_filter_alone_lets_authorized_countries_through() -> None:
     criteri = MatchCriteria(countries=frozenset({"IT", "DE"}))
     assert not _reasons([make_job(country="DE", lang="de")], criteri)
+
+
+# --- filtro sulla città --------------------------------------------------------
+
+
+def test_a_declared_city_different_from_home_is_rejected() -> None:
+    criteri = MatchCriteria(home_city="Milano")
+    assert _reasons([make_job(city="Roma")], criteri) == ["città"]
+
+
+def test_the_home_city_itself_is_never_rejected() -> None:
+    criteri = MatchCriteria(home_city="Milano")
+    assert not _reasons([make_job(city="Milano")], criteri)
+
+
+def test_the_city_comparison_ignores_case_and_accents() -> None:
+    criteri = MatchCriteria(home_city="Città di Milano")
+    assert not _reasons([make_job(city="CITTA DI MILANO")], criteri)
+
+
+def test_a_remote_job_escapes_the_city_filter() -> None:
+    """È il motivo per cui lo si guarda: un remote non ha una sede da confrontare."""
+    criteri = MatchCriteria(home_city="Milano")
+    assert not _reasons([make_job(city="Roma", work_mode=WorkMode.REMOTE)], criteri)
+
+
+def test_a_job_without_a_declared_city_is_never_rejected_by_the_city_filter() -> None:
+    """Come per il paese: il silenzio della fonte non è un rifiuto."""
+    criteri = MatchCriteria(home_city="Milano")
+    assert not _reasons([make_job(city=None)], criteri)
+
+
+def test_the_city_filter_is_off_when_home_city_is_unknown() -> None:
+    """Il default di MatchCriteria() non ha una città: non deve inventarsi un rifiuto."""
+    assert not _reasons([make_job(city="Roma")], MatchCriteria())
+
+
+def test_the_city_filter_can_be_switched_off() -> None:
+    criteri = MatchCriteria(home_city="Milano", restrict_to_home_city=False)
+    assert not _reasons([make_job(city="Roma")], criteri)
+
+
+def test_home_city_prefers_candidate_answers_over_the_profile_contact() -> None:
+    """Stesso ordine delle altre soglie: candidate_profile è il dato pensato per questo."""
+    contatto = Contact(full_name="Filippo", email="f@example.com", city="Milano")
+    profilo = make_profile(contact=contatto)
+    risposte = CandidateAnswers(full_name="Filippo", email="f@example.com", city="Torino")
+    criteri = criteria_mod._build({}, profilo, risposte)
+    assert criteri.home_city == "Torino"
+
+
+def test_home_city_falls_back_to_the_profile_contact() -> None:
+    contatto = Contact(full_name="Filippo", email="f@example.com", city="Milano")
+    profilo = make_profile(contact=contatto)
+    criteri = criteria_mod._build({}, profilo, None)
+    assert criteri.home_city == "Milano"
+
+
+def test_missing_home_city_is_reported_as_an_inactive_filter() -> None:
+    profilo = make_profile(contact=Contact(full_name="Filippo", email="f@example.com", city=None))
+    criteri = criteria_mod._build({}, profilo, None)
+    assert criteri.home_city is None
+    assert any("città" in motivo for motivo in criteri.inactive)
 
 
 def test_excluded_contract_and_work_mode() -> None:

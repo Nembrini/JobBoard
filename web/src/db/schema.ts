@@ -42,6 +42,15 @@ export type TaskStatus = "pending" | "running" | "done" | "failed" | "cancelled"
 export type TaskType = "run_pipeline" | "generate_cv" | "apply" | "reparse_profile" | "check_email";
 export type WorkMode = "on_site" | "hybrid" | "remote" | "unknown";
 
+export const applicantInfo = pgTable("applicant_info", {
+  id: serial("id").primaryKey(),
+  items: jsonb("items").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+export type ApplicantInfoRow = typeof applicantInfo.$inferSelect;
+export type NewApplicantInfo = typeof applicantInfo.$inferInsert;
+
 export const candidateProfile = pgTable("candidate_profile", {
   id: serial("id").primaryKey(),
   fullName: varchar("full_name", { length: 200 }).notNull(),

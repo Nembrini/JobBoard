@@ -134,5 +134,12 @@
 <p>{{ lingue|join(' · ') }}</p>
 {% endif %}
 
+{% if cv.additional_info %}
+<h2>{{ headings.informazioni_aggiuntive }}</h2>
+<ul>
+  {% for voce in cv.additional_info %}<li>{{ voce.text }}</li>{% endfor %}
+</ul>
+{% endif %}
+
 </body>
 </html>

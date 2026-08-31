@@ -1,6 +1,6 @@
-"""Comandi ``profile`` e ``candidate``: dal PDF al database.
+"""Comandi ``profile``, ``candidate`` e ``info``: dal PDF al database.
 
-Il flusso e' in tre passi, e il passo di mezzo e' umano:
+Il flusso di ``profile`` e' in tre passi, e il passo di mezzo e' umano:
 
 1. ``profile import CV.pdf``  estrae, struttura con l'LLM, calcola l'embedding,
    salva sul database e scrive il JSON. Il profilo resta **non rivisto**.
@@ -10,11 +10,16 @@ Il flusso e' in tre passi, e il passo di mezzo e' umano:
 Il passo 2 non e' burocrazia: da questo JSON derivano tutti i punteggi di
 compatibilita' e ogni CV su misura. Un errore qui si propaga a valle per
 settimane senza che nulla lo segnali.
+
+``info`` gestisce invece il pool di informazioni applicante (vedi
+``jobboard.schemas.applicant_info``): non ha un passo di revisione perche' non
+alimenta il matching, solo — facoltativamente — la Fase 6.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -25,12 +30,14 @@ from rich.table import Table
 from ..config import get_settings
 from ..db import session_scope
 from ..models.enums import LlmUsagePurpose
-from ..schemas import CandidateAnswers, MasterProfile
+from ..schemas import ApplicantInfoBank, ApplicantInfoItem, CandidateAnswers, MasterProfile
 from ..store import (
     StoredProfile,
+    load_applicant_info,
     load_candidate,
     load_profile,
     record_llm_usage,
+    save_applicant_info,
     save_candidate,
     save_profile,
 )
@@ -45,6 +52,11 @@ profile_app = typer.Typer(
 candidate_app = typer.Typer(
     name="candidate",
     help="Risposte standard ai form di candidatura.",
+    no_args_is_help=True,
+)
+info_app = typer.Typer(
+    name="info",
+    help="Informazioni applicante: il pool libero che la Fase 6 puo' pescare in aggiunta al CV.",
     no_args_is_help=True,
 )
 
@@ -393,3 +405,92 @@ def _render_candidate(answers: CandidateAnswers) -> None:
         or "[yellow]nessuna[/]",
     )
     console.print(table)
+
+
+# --- info ----------------------------------------------------------------------
+
+
+def _slug(testo: str, presi: set[str]) -> str:
+    """Un id kebab-case, reso univoco rispetto a quelli gia' in uso.
+
+    Stessa logica di ``nuovoId`` in ``web/src/lib/master-profile.ts``: le due
+    non condividono codice perche' vivono in due linguaggi, ma devono produrre
+    lo stesso tipo di id per lo stesso testo.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", testo.lower()).strip("-")[:60].strip("-") or "voce"
+    if base not in presi:
+        return base
+    n = 2
+    while f"{base}-{n}" in presi:
+        n += 1
+    return f"{base}-{n}"
+
+
+@info_app.command("show")
+def show_info(
+    dump: Annotated[
+        bool, typer.Option("--json", help="Stampa il JSON completo invece della tabella.")
+    ] = False,
+) -> None:
+    """Mostra il pool salvato sul database."""
+    with session_scope() as session:
+        stored = load_applicant_info(session)
+    if stored is None or not stored.bank.items:
+        console.print("[yellow]Pool vuoto.[/] Aggiungi una voce con 'jobboard info add'.")
+        return
+
+    if dump:
+        console.print_json(stored.bank.model_dump_json())
+        return
+
+    table = Table(header_style="bold")
+    table.add_column("id")
+    table.add_column("etichetta")
+    table.add_column("testo", overflow="fold")
+    for voce in stored.bank.items:
+        table.add_row(voce.id, voce.label, voce.text)
+    console.print(table)
+    console.print(f"aggiornato: {stored.updated_at.strftime('%Y-%m-%d %H:%M UTC')}")
+
+
+@info_app.command("add")
+def add_info(
+    label: Annotated[str, typer.Argument(help="Categoria o domanda, es. 'Disponibilita'.")],
+    text: Annotated[str, typer.Argument(help="Il testo della voce.")],
+) -> None:
+    """Aggiunge una voce al pool."""
+    with session_scope() as session:
+        stored = load_applicant_info(session)
+        bank = stored.bank if stored else ApplicantInfoBank()
+        presi = {v.id for v in bank.items}
+        voce = ApplicantInfoItem(id=_slug(label, presi), label=label, text=text)
+        nuovo = ApplicantInfoBank(items=[*bank.items, voce])
+        save_applicant_info(session, nuovo)
+    console.print(f"[green]aggiunta[/] [bold]{voce.id}[/]: {label} — {text}")
+
+
+@info_app.command("remove")
+def remove_info(
+    item_id: Annotated[str, typer.Argument(help="L'id della voce, da 'jobboard info show'.")],
+) -> None:
+    """Toglie una singola voce dal pool."""
+    with session_scope() as session:
+        stored = load_applicant_info(session)
+        if stored is None or item_id not in {v.id for v in stored.bank.items}:
+            console.print(f"[red]Nessuna voce con id {item_id!r}.[/]")
+            raise typer.Exit(1)
+        residue = ApplicantInfoBank(items=[v for v in stored.bank.items if v.id != item_id])
+        save_applicant_info(session, residue)
+    console.print(f"[green]tolta:[/] {item_id}")
+
+
+@info_app.command("clear")
+def clear_info(
+    force: Annotated[bool, typer.Option("--force", help="Non chiede conferma.")] = False,
+) -> None:
+    """Svuota il pool per intero."""
+    if not force and not typer.confirm("Cancellare tutte le voci del pool?"):
+        raise typer.Abort()
+    with session_scope() as session:
+        save_applicant_info(session, ApplicantInfoBank())
+    console.print("[green]pool svuotato.[/]")

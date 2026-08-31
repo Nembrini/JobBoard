@@ -51,7 +51,7 @@ def generate_command(
     from ..ai.client import get_provider
     from ..config import get_settings
     from ..cv.generate import GenerationError, generate, storage_path_for
-    from ..store import load_profile
+    from ..store import load_applicant_info, load_profile
 
     settings = get_settings()
 
@@ -77,6 +77,8 @@ def generate_command(
             raise typer.Exit(1)
         profilo = salvato.profile
         gaps = list(match.gaps or [])
+        pool_salvato = load_applicant_info(session)
+        pool = pool_salvato.bank if pool_salvato else None
 
     destinazione = out or (settings.data_dir / "cv" / f"match-{match_id}.pdf")
     console.print(
@@ -92,6 +94,7 @@ def generate_command(
             destinazione,
             gaps=gaps,
             lingua=lingua,
+            applicant_info=pool,
             settings=settings,
         )
     except GenerationError as exc:

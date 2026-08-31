@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from ..models import Job, Match
 from ..models.enums import MatchStatus, WorkMode
 from .criteria import MatchCriteria
-from .text import normalize_company
+from .text import normalize_company, normalize_key
 
 #: Stati che rappresentano una decisione già presa da Filippo. Rivalutarli
 #: significherebbe riproporgli ogni giorno ciò che ha già scartato.
@@ -154,26 +154,52 @@ def _reject(job: Job, c: MatchCriteria, adesso: dt.datetime) -> Rejection | None
 
 
 def _location_reject(job: Job, c: MatchCriteria) -> Rejection | None:
-    """Mercato e diritto al lavoro, che sono due domande diverse.
+    """Mercato, autorizzazione e città: tre domande diverse.
 
     *Mercato* è dove Filippo vuole lavorare; *autorizzazione* è dove può, senza
-    che l'azienda debba sponsorizzarlo. Un annuncio a Londra fallisce il secondo
-    e non il primo, uno a Bangalore fallisce entrambi.
+    che l'azienda debba sponsorizzarlo; *città* è dove vive davvero. Un annuncio
+    a Londra fallisce il secondo e non il primo, uno a Bangalore fallisce
+    entrambi, uno a Roma non fallisce nessuno dei due ma fallisce il terzo.
 
-    Un annuncio remoto salta il controllo sul mercato — è il motivo per cui lo si
-    guarda — ma **non** quello sull'autorizzazione: un remote da azienda
-    statunitense chiede quasi sempre di poter lavorare negli Stati Uniti, e
-    scoprirlo alla domanda del form è tardi.
+    Un annuncio remoto salta il controllo sul mercato e su quello sulla città —
+    è il motivo per cui lo si guarda — ma **non** quello sull'autorizzazione: un
+    remote da azienda statunitense chiede quasi sempre di poter lavorare negli
+    Stati Uniti, e scoprirlo alla domanda del form è tardi.
     """
+    remoto = job.work_mode is WorkMode.REMOTE
+
     paese = (job.country or "").upper()
-    if not paese:
+    if paese:
+        if c.countries and paese not in c.countries and not (remoto and c.remote_ignores_country):
+            return Rejection(job, "paese", f"{paese} è fuori dai mercati scelti")
+
+        if c.authorized_countries and paese not in c.authorized_countries:
+            return Rejection(job, "sponsorship", f"servirebbe autorizzazione al lavoro in {paese}")
+
+    return _city_reject(job, c, remoto=remoto)
+
+
+def _city_reject(job: Job, c: MatchCriteria, *, remoto: bool) -> Rejection | None:
+    """Fuori dalla tua città, a meno che l'annuncio non sia remoto.
+
+    La dashboard mostrava annunci sparsi su decine di città che Filippo non
+    considererebbe mai per un lavoro in sede: il rumore rendeva la lista meno
+    utile di un filtro più severo. A differenza del resto dello Stadio 0 — dove
+    un dato mancante non esclude mai — qui l'assenza della città sulla fonte non
+    esclude comunque nulla (resta la regola trasversale), ma un annuncio che
+    *dichiara* una città diversa dalla tua viene scartato per difetto: è
+    l'inverso del filtro sul paese, dov'è la lista degli ammessi a essere
+    esplicita. Spegnibile da ``restrict_to_home_city`` per chi preferisce
+    vedere anche gli annunci fuori sede.
+    """
+    if not c.restrict_to_home_city or not c.home_city or remoto:
+        return None
+
+    città = (job.city or "").strip()
+    if not città:
         return None  # il silenzio della fonte non è un rifiuto
 
-    remoto = job.work_mode is WorkMode.REMOTE
-    if c.countries and paese not in c.countries and not (remoto and c.remote_ignores_country):
-        return Rejection(job, "paese", f"{paese} è fuori dai mercati scelti")
-
-    if c.authorized_countries and paese not in c.authorized_countries:
-        return Rejection(job, "sponsorship", f"servirebbe autorizzazione al lavoro in {paese}")
+    if normalize_key(città) != normalize_key(c.home_city):
+        return Rejection(job, "città", f"{città} non è {c.home_city} e l'annuncio non è remoto")
 
     return None

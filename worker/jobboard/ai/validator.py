@@ -6,7 +6,7 @@ differenza fra un sistema che genera CV e uno di cui ci si puo' fidare abbastanz
 da spedirli: senza, ogni documento andrebbe riletto riga per riga contro
 l'originale, che e' esattamente il lavoro che il sistema doveva togliere.
 
-**Tre regole, tutte deterministiche.**
+**Quattro regole, tutte deterministiche.**
 
 1. *Ogni frase ha una fonte.* Ogni bullet dichiara il ``source_id`` del bullet del
    profilo da cui viene, e quell'id deve esistere e appartenere all'esperienza
@@ -19,6 +19,13 @@ l'originale, che e' esattamente il lavoro che il sistema doveva togliere.
    "ridotto".
 3. *Le competenze si dichiarano solo se dichiarate.* Ogni voce di ``skills`` deve
    risalire al profilo.
+4. *``additional_info`` segue le stesse regole 1 e 2, contro un'altra fonte.* Ogni
+   voce dichiara il ``source_id`` di una voce del pool di informazioni applicante
+   (``jobboard.schemas.applicant_info``), e le sue cifre devono comparire nel
+   testo di quella voce. E' la stessa identita' di controllo del bullet, applicata
+   a un materiale che non e' nel ``MasterProfile``: separarla dalla regola 1
+   invece di farla convivere con ``per_esperienza`` tiene distinti due elenchi che
+   nel dominio sono gia' due cose diverse.
 
 **Un id e' un'affermazione, non una prova.** Il modello puo' scrivere qualunque
 cosa e attribuirla a ``acme-be-1``: e' per questo che la regola 2 guarda il
@@ -37,7 +44,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from ..schemas import MasterProfile
+from ..schemas import ApplicantInfoBank, MasterProfile
 from ..schemas.profile import Bullet
 from .tailor import TailoredCV
 
@@ -310,12 +317,14 @@ def _fonte_del_bullet(bullet: Bullet) -> str:
     return " ".join(p for p in (bullet.text, bullet.action, bullet.context, bullet.result) if p)
 
 
-def _testo_intero(profile: MasterProfile) -> str:
+def _testo_intero(profile: MasterProfile, applicant_info: ApplicantInfoBank | None) -> str:
     """Il profilo come un unico blocco, per verificare i numeri del summary.
 
     Il summary non ha un bullet di riferimento: e' prosa che riassume tutto,
     quindi il confronto e' contro tutto — date comprese, perche' "tre anni di
-    esperienza" si sostiene sulle date delle esperienze.
+    esperienza" si sostiene sulle date delle esperienze. Il pool di informazioni
+    applicante entra nello stesso blocco per lo stesso motivo: il summary puo'
+    riassumere anche un fatto che verra' scelto per ``additional_info``.
     """
     parti = [profile.summary or "", profile.headline or ""]
     for esperienza in profile.experiences:
@@ -327,10 +336,14 @@ def _testo_intero(profile: MasterProfile) -> str:
         parti += [titolo.degree, titolo.institution, titolo.end or "", titolo.grade or ""]
     for certificazione in profile.certifications:
         parti += [certificazione.name, certificazione.issued or ""]
+    if applicant_info:
+        parti += list(applicant_info.known_texts().values())
     return " ".join(p for p in parti if p)
 
 
-def _verifica_cifre(cv: TailoredCV, profile: MasterProfile) -> list[Violazione]:
+def _verifica_cifre(
+    cv: TailoredCV, profile: MasterProfile, applicant_info: ApplicantInfoBank | None
+) -> list[Violazione]:
     sorgenti = {b.id: b for e in profile.experiences for b in e.bullets}
     violazioni: list[Violazione] = []
 
@@ -350,7 +363,7 @@ def _verifica_cifre(cv: TailoredCV, profile: MasterProfile) -> list[Violazione]:
                     )
                 )
 
-    if inventati := numeri(cv.summary) - numeri(_testo_intero(profile)):
+    if inventati := numeri(cv.summary) - numeri(_testo_intero(profile, applicant_info)):
         violazioni.append(
             Violazione(
                 "cifra-inventata",
@@ -358,6 +371,45 @@ def _verifica_cifre(cv: TailoredCV, profile: MasterProfile) -> list[Violazione]:
                 f"{_elenca(inventati)} non compare da nessuna parte nel profilo",
             )
         )
+
+    return violazioni
+
+
+# --- regola 4: additional_info segue le regole 1 e 2, contro il pool ----------
+
+
+def _verifica_informazioni_aggiuntive(
+    cv: TailoredCV, applicant_info: ApplicantInfoBank | None
+) -> list[Violazione]:
+    """Provenienza e cifre di ``additional_info``, contro il pool e non il profilo.
+
+    Un ``additional_info`` non vuoto con un pool vuoto (o assente) e' sempre una
+    violazione: non c'e' nessuna fonte a cui l'id potrebbe appartenere.
+    """
+    testi = applicant_info.known_texts() if applicant_info else {}
+    violazioni: list[Violazione] = []
+
+    for indice, voce in enumerate(cv.additional_info):
+        fonte = testi.get(voce.source_id)
+        dove = f"additional_info[{indice}]"
+        if fonte is None:
+            violazioni.append(
+                Violazione(
+                    "informazione-inesistente",
+                    dove,
+                    f"nel pool di informazioni applicante non esiste una voce con id "
+                    f"{voce.source_id!r}",
+                )
+            )
+            continue
+        if inventati := numeri(voce.text) - numeri(fonte):
+            violazioni.append(
+                Violazione(
+                    "cifra-inventata",
+                    dove,
+                    f"{_elenca(inventati)} non compare nella voce {voce.source_id!r} del pool",
+                )
+            )
 
     return violazioni
 
@@ -425,12 +477,22 @@ def _verifica_competenze(cv: TailoredCV, profile: MasterProfile) -> list[Violazi
 # --- interfaccia --------------------------------------------------------------
 
 
-def validate(cv: TailoredCV, profile: MasterProfile) -> list[Violazione]:
-    """Le affermazioni del CV che il profilo non sostiene. Vuota = si puo' stampare."""
+def validate(
+    cv: TailoredCV, profile: MasterProfile, applicant_info: ApplicantInfoBank | None = None
+) -> list[Violazione]:
+    """Le affermazioni del CV che il profilo non sostiene. Vuota = si puo' stampare.
+
+    ``applicant_info`` e' facoltativo perche' il validatore serve anche dove il
+    pool non esiste ancora (i test, un profilo senza nessuna voce salvata): in
+    quel caso la regola 4 tratta ``additional_info`` non vuoto come una
+    violazione invece di ignorarlo — il modello non puo' aver citato una fonte
+    che non gli e' mai stata data.
+    """
     violazioni = [
         *_verifica_provenienza(cv, profile),
-        *_verifica_cifre(cv, profile),
+        *_verifica_cifre(cv, profile, applicant_info),
         *_verifica_competenze(cv, profile),
+        *_verifica_informazioni_aggiuntive(cv, applicant_info),
     ]
     if violazioni:
         log.warning("CV respinto: %d violazioni — %s", len(violazioni), violazioni[0])

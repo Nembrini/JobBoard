@@ -1,9 +1,11 @@
 import { CircleAlert } from "lucide-react";
 
+import { ApplicantInfoEditor } from "@/components/cv/applicant-info-editor";
 import { ConfirmBanner } from "@/components/cv/confirm-banner";
 import { CvFileCard, CvVuoto } from "@/components/cv/cv-file-card";
 import { ProfileEditor } from "@/components/cv/profile-editor";
 import { SiteHeader } from "@/components/site-header";
+import { getApplicantInfo } from "@/lib/applicant-info-store";
 import { requireSession } from "@/lib/dal";
 import { getProfile } from "@/lib/profile";
 import { getWorkerStatus } from "@/lib/queries";
@@ -28,10 +30,11 @@ export const metadata = { title: "CV" };
 export default async function CvPage() {
   await requireSession();
 
-  const [profilo, task, worker] = await Promise.all([
+  const [profilo, task, worker, informazioni] = await Promise.all([
     getProfile(),
     getLatestTask("reparse_profile"),
     getWorkerStatus(),
+    getApplicantInfo(),
   ]);
 
   const download = profilo?.sourceStoragePath ? await signedUrl(profilo.sourceStoragePath) : null;
@@ -93,6 +96,18 @@ export default async function CvPage() {
             ) : profilo.masterProfile ? (
               <ProfileEditor iniziale={profilo.masterProfile} />
             ) : null}
+
+            {informazioni.invalido ? (
+              <Avviso grave>
+                Il pool di informazioni applicante salvato non supera più la validazione (
+                {informazioni.invalido}).
+              </Avviso>
+            ) : (
+              <ApplicantInfoEditor
+                iniziale={informazioni.bank}
+                profilo={profilo.invalido ? null : profilo.masterProfile}
+              />
+            )}
           </>
         )}
       </main>

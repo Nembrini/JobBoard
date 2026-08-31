@@ -74,6 +74,15 @@ class MatchCriteria:
     #: Deriva da ``candidate_profile.work_authorization``.
     authorized_countries: frozenset[str] = frozenset()
 
+    #: La tua città, dedotta da ``candidate_profile.city`` o, in mancanza, da
+    #: ``master_profile.contact.city``. ``None`` se nessuna delle due la dichiara.
+    home_city: str | None = None
+    #: Se ``True`` (predefinito), un annuncio non remoto e fuori da ``home_city``
+    #: viene scartato allo Stadio 0 — vedi ``filters._city_reject`` per il perche'.
+    #: Spegnibile dalle Impostazioni per chi vuole vedere anche gli annunci fuori
+    #: sede senza spostare la residenza dichiarata.
+    restrict_to_home_city: bool = True
+
     excluded_contract_types: frozenset[ContractType] = frozenset()
     excluded_work_modes: frozenset[WorkMode] = frozenset()
     #: Nomi azienda **normalizzati** (``pipeline.text.normalize_company``).
@@ -124,6 +133,8 @@ class MatchCriteria:
             "seniority_tolerance": self.seniority_tolerance,
             "languages": sorted(self.languages),
             "authorized_countries": sorted(self.authorized_countries),
+            "home_city": self.home_city,
+            "restrict_to_home_city": self.restrict_to_home_city,
             "excluded_contract_types": sorted(c.value for c in self.excluded_contract_types),
             "excluded_work_modes": sorted(m.value for m in self.excluded_work_modes),
             "blocked_companies": sorted(self.blocked_companies),
@@ -176,6 +187,8 @@ def _build(
     lingue = _languages(salvati, profile, answers)
     autorizzati = _authorized(salvati, answers)
     livello = _seniority(salvati, profile)
+    citta = _home_city(salvati, profile, answers)
+    restringi_citta = bool(salvati.get("restrict_to_home_city", True))
 
     inattivi: list[str] = []
     if not lingue:
@@ -190,6 +203,11 @@ def _build(
         )
     if livello is Seniority.UNKNOWN:
         inattivi.append("seniority: non deducibile dal profilo, il filtro sul livello è spento")
+    if restringi_citta and not citta:
+        inattivi.append(
+            "città: nessuna dichiarata, il filtro sulla città dell'annuncio è spento "
+            "(compila city in candidate_profile.json o contact.city nel CV)"
+        )
 
     return MatchCriteria(
         countries=frozenset(_codes(salvati.get("countries"), DEFAULT_COUNTRIES)),
@@ -198,6 +216,8 @@ def _build(
         seniority_tolerance=_int(salvati.get("seniority_tolerance"), 1),
         languages=lingue,
         authorized_countries=autorizzati,
+        home_city=citta,
+        restrict_to_home_city=restringi_citta,
         excluded_contract_types=frozenset(
             _enums(salvati.get("excluded_contract_types"), ContractType)
         ),
@@ -242,6 +262,25 @@ def _authorized(salvati: dict[str, Any], answers: CandidateAnswers | None) -> fr
     return frozenset(
         code.upper() for code, stato in answers.work_authorization.items() if stato in ammessi
     )
+
+
+def _home_city(
+    salvati: dict[str, Any], profile: MasterProfile | None, answers: CandidateAnswers | None
+) -> str | None:
+    """La città di residenza, con lo stesso ordine di priorità delle altre soglie.
+
+    ``candidate_profile.city`` vince su ``master_profile.contact.city`` perché è
+    il dato pensato apposta per rispondere "dove vivi davvero", mentre il
+    contatto del CV a volte riporta la città dell'ultima esperienza lavorativa
+    e non quella di residenza attuale.
+    """
+    if isinstance(salvata := salvati.get("home_city"), str) and salvata.strip():
+        return salvata.strip()
+    if answers and answers.city:
+        return answers.city
+    if profile and profile.contact.city:
+        return profile.contact.city
+    return None
 
 
 def _seniority(salvati: dict[str, Any], profile: MasterProfile | None) -> Seniority:
