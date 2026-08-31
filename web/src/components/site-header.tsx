@@ -19,7 +19,7 @@ export function SiteHeader({
   current,
   subtitle,
 }: {
-  current: "annunci" | "cv" | "impostazioni" | "cronologia";
+  current: "annunci" | "cv" | "candidature" | "impostazioni" | "cronologia";
   subtitle?: React.ReactNode;
 }) {
   return (
@@ -33,6 +33,9 @@ export function SiteHeader({
             </LinkTab>
             <LinkTab href="/cv" active={current === "cv"}>
               CV
+            </LinkTab>
+            <LinkTab href="/candidature" active={current === "candidature"}>
+              Candidature
             </LinkTab>
             <LinkTab href="/cronologia" active={current === "cronologia"}>
               Cronologia

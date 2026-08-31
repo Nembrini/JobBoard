@@ -42,3 +42,24 @@ export async function avviaRaccolta(): Promise<EsitoAvvio> {
     };
   }
 }
+
+/**
+ * Accoda un controllo della posta (Fase 9): stesso `check_email` che gira da
+ * solo una volta al giorno dentro `run_pipeline`, qui su richiesta — per non
+ * aspettare la run notturna dopo aver acceso il tracciamento, o per ricontrollare
+ * subito dopo aver corretto uno stato a mano.
+ */
+export async function avviaControlloEmail(): Promise<EsitoAvvio> {
+  if (!(await requireApiSession())) return { ok: false, errore: "non autorizzato" };
+
+  try {
+    const { id, giaInCoda } = await enqueueTask("check_email");
+    revalidatePath("/candidature");
+    return { ok: true, id, giaInCoda };
+  } catch (errore) {
+    return {
+      ok: false,
+      errore: errore instanceof Error ? errore.message : "accodamento fallito",
+    };
+  }
+}

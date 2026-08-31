@@ -438,13 +438,44 @@ più.
 
 ## Fase 9 — Tracking post-candidatura · 1.5 gg
 
-- [ ] **9.1** Vista stati: inviata, in attesa, colloquio, rifiutata, offerta — aggiornabili a mano
-- [ ] **9.2** Reader IMAP Gmail **con scope ristretto**: solo mail successive alla data della candidatura e correlate per dominio azienda o thread. Non scansiona la casella intera e non conserva il corpo delle mail non correlate
-- [ ] **9.3** Classificatore Haiku: `interview` / `rejection` / `ack` / `request_info` / `other`, che aggiorna lo stato e notifica
-- [ ] **9.4** Promemoria di follow-up dopo N giorni di silenzio
-- [ ] **9.5** Metriche: tasso di risposta per fonte, per fascia di punteggio, per tier
+- [x] **9.1** Vista stati: inviata, in attesa, colloquio, rifiutata, offerta — aggiornabili a mano.
+      Pagina `/candidature`, con un sesto stato (ritirata) aggiunto alla lista modificabile
+      perché l'enum lo prevedeva già e un ritiro è un esito reale che vale la pena registrare
+- [x] **9.2** Reader IMAP Gmail **con scope ristretto**: solo mail successive alla data della
+      candidatura (o dell'ultimo controllo) e correlate per dominio azienda o thread. Non
+      scansiona la casella intera — `SEARCH SINCE` — e non conserva il corpo delle mail non
+      correlate — due chiamate `BODY.PEEK` separate, la seconda solo per chi supera
+      `looks_related()` o la corrispondenza di thread (`jobboard/tracking/imap_reader.py`)
+- [x] **9.3** Classificatore: `interview` / `rejection` / `ack` / `request_info` / `other`, che
+      aggiorna lo stato con una regola deterministica nel codice
+      (`tracking/classifier.py::STATUS_BY_CLASS`, `next_status`) e notifica via
+      `ApplicationEvent`. **"Haiku" del piano è diventato il provider attivo** (Gemini, un
+      modello dedicato `model_classify`): il perché è in `ARCHITECTURE.md` §10bis
+- [x] **9.4** Promemoria di follow-up dopo N giorni di silenzio dall'invio (non dall'ultimo
+      controllo email — il perché è in `ARCHITECTURE.md` §10bis), soglia impostabile in
+      `/impostazioni`, mail via lo stesso mailer del digest (`tracking/followup.py`)
+- [x] **9.5** Metriche: tasso di risposta per fonte, per fascia di punteggio, per tier, in un
+      pannello sulla pagina Candidature (`web/src/lib/candidature.ts::getResponseMetrics`)
 
-**Verifica:** una mail di risposta reale sposta la candidatura nello stato corretto.
+**Verifica fatta:** suite worker **430 test** (391 + 39 nuove, sui moduli
+`jobboard/tracking/`: correlazione IMAP, parsing header/corpo MIME, classificatore,
+promemoria — nessuno tocca rete o database, stesso principio delle fasi precedenti),
+`ruff` e `mypy --strict` puliti su tutto il package. Lato web: `tsc --noEmit`, `eslint` e
+`next build` puliti con i tipi generati da `next typegen`, `/candidature` compare fra le
+rotte compilate. Nessuna migration nuova: `follow_up_due_at`, `last_email_checked_at`,
+gli stati post-candidatura di `ApplicationStatus` ed `EmailClass` erano già nello schema
+iniziale (Fase 0), scritti in anticipo per questa fase.
+
+**Resta aperto:** il gestore `check_email` (`jobboard.handlers.run_email_check`) non è
+stato provato end-to-end con una casella Gmail vera, un `GMAIL_APP_PASSWORD` reale e un
+LLM vero — questo ambiente non ha nessuno dei tre, e nessun test di questo repository
+tocca un database vero senza prima costruire la fixture (vedi `CLAUDE.md`). Il percorso è
+verificato fino alla chiamata IMAP/LLM compresa, con entrambe sostituite da finti nei
+test. Prima verifica end-to-end suggerita: manda una candidatura vera, rispondi da un
+altro account con un "colloquio confermato", premi **Controlla posta adesso** nella
+pagina Candidature e controlla che lo stato passi a "Colloquio" e che l'evento compaia
+in timeline; poi accorcia `follow_up_after_days` a 3 su una candidatura senza risposta e
+verifica che compaia il promemoria, sia in pagina sia via mail.
 
 ---
 

@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     #: Basso volume (pochi al giorno) ma e' il documento che ti rappresenta,
     #: quindi qui si sceglie il modello migliore che il free tier consente.
     model_cv: str = "gemini-3.6-flash"
+    #: Classificazione delle risposte dei recruiter (Fase 9.3). Il piano
+    #: originale nominava "Haiku": con il provider attivo che e' Gemini (vedi
+    #: la decisione in ``ARCHITECTURE.md`` sulla Message Batches API, §3.3),
+    #: quel nome era generico per "un modello economico e veloce", non
+    #: un'implementazione Anthropic. Stesso livello di ``model_scoring`` per lo
+    #: stesso motivo: e' un compito a basso volume ma frequente.
+    model_classify: str = "gemini-3.5-flash-lite"
 
     #: Sempre in locale su CPU, via fastembed. Nessuna chiamata di rete dopo il
     #: primo scaricamento. I modelli ammessi sono elencati in
@@ -92,12 +99,13 @@ class Settings(BaseSettings):
     jooble_api_key: SecretStr = SecretStr("")
     rapidapi_key: SecretStr = SecretStr("")
 
-    # --- email (dalla Fase 8) -------------------------------------------------
+    # --- email (dalla Fase 8, IMAP dalla Fase 9) -------------------------------
     gmail_address: str = ""
     gmail_app_password: SecretStr = SecretStr("")
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
 
     # --- comportamento --------------------------------------------------------
     #: Finche' e' ``True`` nessuna candidatura raggiunge davvero un ATS: il worker
