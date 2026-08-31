@@ -21,7 +21,7 @@ credenziali, quindi non sono automatizzabili.
 - [x] Creare un progetto **Supabase** gratuito, region `eu-central-1` (Francoforte).
       Annotare: connection string diretta, connection string pooler, project URL, service role key.
 - [x] Creare nel progetto Supabase un bucket Storage **privato** chiamato `resumes`.
-- [ ] Creare un account **Vercel** e collegarlo al repository.
+- [x] Creare un account **Vercel** e collegarlo al repository.
 - [x] Creare credenziali **Google OAuth** su Google Cloud Console (tipo "Web application"),
       con redirect URI `https://<dominio-vercel>/api/auth/callback/google`.
 - [ ] Ottenere una **API key Anthropic** su console.anthropic.com (a consumo, separata
@@ -34,7 +34,7 @@ credenziali, quindi non sono automatizzabili.
       singola API sono due cose separate: con la chiave e senza iscrizione la fonte
       risponde `403 You are not subscribed to this API`. **È l'unico passo che manca
       per vedere gli annunci LinkedIn e Indeed in tabella.**
-- [ ] Attivare la verifica in due passaggi su Gmail e generare una **App Password** per
+- [x] Attivare la verifica in due passaggi su Gmail e generare una **App Password** per
       SMTP/IMAP. Serve solo dalla Fase 8 in poi.
 
 Tutte queste chiavi vanno in `worker/.env` (mai committato) e nelle Environment
@@ -183,8 +183,9 @@ RAL attesa. Con `MATCH_THRESHOLD=65` passa un annuncio solo.
       candidatura parte davvero.
 - [x] **4.8** Su mobile la tabella diventa lista di card, commutata dalle media query e
       non da JavaScript: niente da idratare e nessun salto di layout.
-- [ ] **4.9** Deploy in produzione e verifica che il login respinga ogni altro account
-      Google. **Serve una credenziale OAuth da Google Cloud Console**, che è di Filippo.
+- [x] **4.9** Deploy in produzione e verifica che il login respinga ogni altro account
+      Google. Confermato da Filippo: il sito è online su Vercel e un account Google
+      diverso da quello autorizzato viene respinto.
 
 **Verifica:** eseguita in locale sulla build di produzione, con i 153 match veri. La
 tabella mostra i punteggi ordinati, i filtri girano su Postgres (`mode=remote` 19,
@@ -426,13 +427,9 @@ sono pure una volta tolta la sessione, testate con lo stesso stile `_FakeSession
 `ruff format` e `mypy --strict` puliti. Lato web: `tsc --noEmit`, `eslint` e `next build`
 puliti con i tipi generati da `next typegen`, incluse le due rotte nuove.
 
-**Resta aperto:** nessuna delle tre è stata provata end-to-end con un account Gmail vero —
-serve una `GMAIL_APP_PASSWORD` reale e un run completo sul PC di Filippo, che questo
-ambiente non ha. Il percorso è verificato fino alla chiamata SMTP compresa, con l'invio
-vero sostituito da un finto nei test. Prima verifica suggerita: forza una run dal
-telefono con il toggle acceso e un annuncio che superi la soglia, controlla che la mail
-arrivi con il link giusto; spegni il toggle e verifica che alla run successiva non arrivi
-più.
+**Verificato end-to-end da Filippo** con un `GMAIL_APP_PASSWORD` reale sul suo PC: la
+raccolta automatica parte, il digest arriva con i link giusti, `/cronologia` mostra le
+run vere.
 
 ---
 
