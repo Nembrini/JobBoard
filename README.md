@@ -8,7 +8,7 @@ Ogni giorno raccoglie annunci da più portali, li confronta con il tuo CV, li or
 compatibilità — e con un click genera un CV su misura per quel singolo annuncio e invia
 la candidatura.
 
-![Stato](https://img.shields.io/badge/stato-Fase%2010%20in%20corso-blue)
+![Stato](https://img.shields.io/badge/stato-Fase%2011%20in%20corso-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
@@ -57,7 +57,7 @@ Ogni stadio scarta il più possibile con il metodo più economico disponibile:
 
 | Stadio | Metodo | Costo | Misurato su 153 annunci |
 |---|---|---|---|
-| 0 · Filtri duri | Lingua, work authorization, seniority, luogo, età | zero | restano 44 |
+| 0 · Filtri duri | Lingua, work authorization, seniority, luogo, città, età | zero | restano 44 |
 | 1 · Semantico | Embedding multilingua in locale + BM25 sulle competenze | zero | restano 40 |
 | 2 · Rubrica | Gemini Flash Lite, 6 criteri pesati | free tier | 40 chiamate, ~5 min |
 
@@ -135,6 +135,7 @@ browser che devi guardare mentre compila un form — che non può girare su un s
 | 8 · Run giornaliera | 🔸 | Raccolta automatica, digest email, pagina Impostazioni e Cronologia — non ancora provate con un account Gmail vero |
 | 9 · Tracking | 🔸 | Stati, lettura IMAP, classificazione risposte, promemoria, metriche — non ancora provato con un account Gmail e un LLM veri |
 | 10 · Rifinitura | 🔸 | Dashboard costi (`/costi`), backup CSV automatico — manca solo la ricalibrazione dei pesi, che serve due settimane d'uso reale |
+| 11 · Città e informazioni applicante | 🔸 | Filtro sulla città allo Stadio 0, pool libero di informazioni applicante (`jb info`, sezione CV) che la Fase 6 può citare in aggiunta al profilo — non ancora provato contro un Postgres e un LLM veri |
 
 Dettaglio completo con sottofasi e criteri di verifica in **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 

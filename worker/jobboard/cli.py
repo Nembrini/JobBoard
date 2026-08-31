@@ -23,6 +23,7 @@ from .commands import (
     costs_app,
     cv_app,
     email_app,
+    info_app,
     ingest_command,
     match_command,
     matches_app,
@@ -62,6 +63,7 @@ app = typer.Typer(
 )
 app.add_typer(profile_app)
 app.add_typer(candidate_app)
+app.add_typer(info_app)
 app.add_typer(sources_app)
 app.add_typer(matches_app)
 app.add_typer(cv_app)

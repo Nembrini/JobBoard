@@ -32,11 +32,12 @@ from .enums import (
 from .job import Job, JobRequirements, JobSourceLink, Source
 from .match import Match
 from .ops import LLMUsageLog, Run, Setting, Task, WorkerHeartbeat
-from .profile import CandidateProfile, Profile
+from .profile import ApplicantInfo, CandidateProfile, Profile
 
 __all__ = [
     "TERMINAL_APPLICATION_STATUSES",
     "TIER_A_ATS",
+    "ApplicantInfo",
     "Application",
     "ApplicationEvent",
     "ApplicationEventType",

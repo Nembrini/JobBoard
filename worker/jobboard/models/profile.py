@@ -1,11 +1,14 @@
 """Profilo del candidato.
 
-Due tabelle distinte perche' cambiano per motivi diversi:
+Tre tabelle distinte perche' cambiano per motivi diversi:
 
 * :class:`Profile` e' il **contenuto** del CV (esperienze, skill) — cambia quando
   Filippo carica un CV nuovo, e da esso derivano matching e CV generati.
 * :class:`CandidateProfile` sono i **dati per compilare i form** (telefono, work
   authorization, preavviso) — cambiano raramente e non influenzano il matching.
+* :class:`ApplicantInfo` e' il pool libero di fatti extra — vedi
+  ``jobboard.schemas.applicant_info`` per il perche' non e' lo stesso oggetto
+  del CV master. La Fase 6 lo legge in aggiunta al profilo, non al suo posto.
 """
 
 from __future__ import annotations
@@ -103,4 +106,23 @@ class CandidateProfile(Base, TimestampMixin):
     #: trasferte, come hai saputo di noi...). Chiave = domanda normalizzata.
     ats_answers: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=default_sql("'{}'::jsonb")
+    )
+
+
+class ApplicantInfo(Base, TimestampMixin):
+    """Pool libero di informazioni applicante. Singleton, come le altre due.
+
+    Un'unica colonna JSONB e non una tabella con una riga per voce: le voci si
+    riscrivono per intero dalla dashboard, esattamente come ``master_profile`` —
+    stesso motivo, stessa scelta. Lo schema Pydantic vive in
+    ``jobboard.schemas.applicant_info``.
+    """
+
+    __tablename__ = "applicant_info"
+    __table_args__ = (CheckConstraint("id = 1", name="singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+
+    items: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=default_sql("'[]'::jsonb")
     )

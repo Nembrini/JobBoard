@@ -410,8 +410,9 @@ raccolti:
 ```
 STADIO 0 — FILTRI DURI          (costo zero)                     153 -> 44
   esclude: lingua non parlata, work authorization mancante, seniority fuori
-  range +/-1, location fuori dai mercati scelti, contratto escluso, azienda in
-  blocklist, annuncio troppo vecchio, gia' visto o gia' candidato
+  range +/-1, location fuori dai mercati scelti, citta' diversa da quella del
+  candidato (se non remoto), contratto escluso, azienda in blocklist, annuncio
+  troppo vecchio, gia' visto o gia' candidato
   scarti misurati: livello 85, eta' 21, paese 3
 
 STADIO 1 — SEMANTICO            (embedding locale, costo zero)    44 -> 40
@@ -452,15 +453,21 @@ fonte non la ripubblica il giorno dopo. Il filtro esclude solo quando l'annuncio
 Stessa logica sulla retribuzione: la soglia minima morde solo su una RAL **dichiarata**.
 Il silenzio non è una cifra bassa.
 
-#### Mercato e diritto al lavoro sono due domande diverse
+#### Mercato, diritto al lavoro e città sono tre domande diverse
 
 *Mercato* è dove Filippo vuole lavorare; *autorizzazione* è dove può, senza che l'azienda
-debba sponsorizzarlo. Un annuncio a Londra fallisce il secondo e non il primo, uno a
-Bangalore fallisce entrambi.
+debba sponsorizzarlo; *città* è dove vive davvero (Fase 11). Un annuncio a Londra fallisce
+il secondo e non il primo, uno a Bangalore fallisce entrambi, uno a Roma non fallisce
+nessuno dei due ma fallisce il terzo.
 
-Un annuncio remoto salta il controllo sul mercato — è il motivo per cui lo si guarda — ma
-**non** quello sull'autorizzazione: un remote da azienda statunitense chiede quasi sempre
-di poter già lavorare negli Stati Uniti, e scoprirlo alla domanda del form è tardi.
+Un annuncio remoto salta il controllo sul mercato e su quello sulla città — è il motivo per
+cui lo si guarda — ma **non** quello sull'autorizzazione: un remote da azienda
+statunitense chiede quasi sempre di poter già lavorare negli Stati Uniti, e scoprirlo alla
+domanda del form è tardi.
+
+Il filtro sulla città è l'unica eccezione voluta alla regola "un dato mancante non esclude
+mai" appena sopra: qui è la lista degli ammessi a essere implicita e non esplicita — vedi
+§11quater per il perché.
 
 #### La seniority si deduce, e si può sovrascrivere
 
@@ -762,6 +769,11 @@ verifica quindi tre cose diverse, tutte deterministiche:
    errore che in un colloquio non si recupera;
 3. **le competenze risalgono al profilo**.
 
+Una quarta regola, aggiunta in Fase 11, applica la stessa identità di controllo (1+2) a
+`additional_info` — le voci scelte dal pool di informazioni applicante, un elenco separato
+dal `MasterProfile`. Il perché di un pool a sé, e non un'estensione del profilo o delle
+risposte ai form, è in §11quater.
+
 ### Due falsi positivi che avrebbero reso inutile il validatore
 
 Entrambi trovati provando, ed entrambi gravi allo stesso modo: **un validatore che blocca
@@ -1044,6 +1056,12 @@ Tre regole di scrittura, tutte con un motivo:
   segnali. Meglio nessun vettore che uno che mente: il worker vede
   `embedding_model` nullo e lo ricalcola.
 
+Sotto l'editor del profilo, la stessa pagina ospita anche **Informazioni applicante**
+(Fase 11): un elenco a parte, salvato su una tabella diversa, con lo stesso modello di
+scrittura ("un solo stato, un solo salvataggio") ma senza l'azzeramento dell'embedding —
+il pool non entra nello Stadio 1, solo, facoltativamente, nella Fase 6. Vedi §11quater per
+il perché è una tabella a sé e non una sezione in più del `MasterProfile`.
+
 Il **caricamento** di un CV nuovo segue l'architettura split: la dashboard mette il
 file nel bucket privato e accoda un `reparse_profile`; a estrarre il testo, farlo
 strutturare a un LLM e ricalcolare l'embedding è il PC di casa, perché nessuna delle
@@ -1108,6 +1126,67 @@ finire l'archivio.
 casa spento per settimane — non deve lasciare zero backup solo perché l'ultimo
 supera una soglia di età. `rotate_backups` tiene sempre gli ultimi
 `BACKUP_KEEP_COUNT` (default 14), qualunque sia la data dell'ultimo.
+
+## 11quater. Città e informazioni applicante (Fase 11)
+
+**Il filtro sulla città è l'unica eccezione voluta a "un dato mancante non esclude mai"
+(§7).** La dashboard mostrava annunci sparsi su decine di città in cui Filippo non si
+sarebbe mai trasferito per un lavoro in sede: rumore che il filtro sul paese, pensato per
+un mercato molto più ampio ("l'Italia" contro "l'Unione Europea"), non toglieva. La
+soluzione non ribalta la regola generale — un annuncio che *non dichiara* la città non
+viene comunque scartato, esattamente come un annuncio senza paese dichiarato — ma per una
+volta è la lista degli ammessi a essere implicita: un annuncio che *dichiara* una città
+diversa da `home_city` viene scartato per difetto, a meno che non sia remoto (che è
+esattamente il motivo per cui lo si guarda). `home_city` si deduce con lo stesso ordine di
+priorità delle altre soglie derivate dal profilo — prima `candidate_profile.city` (il dato
+pensato apposta per "dove vivi davvero"), poi `master_profile.contact.city` — ed è
+spegnibile da `restrict_to_home_city` in `settings` per chi preferisce vedere anche gli
+annunci fuori sede.
+
+**Il pool di informazioni applicante è una terza tabella, non un'estensione delle due
+esistenti.** La domanda naturale è perché non aggiungere questi fatti al `MasterProfile` o
+a `CandidateAnswers` (§9, §10). La risposta è che nessuno dei due risponde alla domanda che
+questa funzionalità pone:
+
+- Il `MasterProfile` è il CV **rivisto**: ogni voce vi entra dopo che Filippo l'ha
+  controllata a mano, ed è il presupposto su cui si regge tutto il resto della Fase 6 — il
+  validatore anti-invenzione lo tratta come l'unica fonte di verità possibile. Imporre la
+  stessa revisione a un pool pensato per crescere velocemente ("un fatto in più, subito")
+  avrebbe reintrodotto l'attrito che la Fase 1.3 esiste apposta per contenere.
+- `CandidateAnswers` risponde "cosa scrivere nei campi di un form" — telefono, permesso di
+  lavoro, preavviso — e non entra nel matching né nella prosa di un CV: cambia raramente e
+  descrive dati anagrafici, non risultati o fatti da argomentare.
+
+Il pool sta in mezzo: fatti veri, spesso specifici per candidatura, non ancora (o mai)
+formalizzati in una voce del CV master. Una tabella a sé rende esplicito che la Fase 6 li
+tratta diversamente — materiale **facoltativo**, citato solo se pertinente, mai un
+sostituto del profilo.
+
+**La Fase 6 sceglie, non ricopia tutto.** Il pool entra nel prompt come blocco a parte
+(`## INFORMAZIONI APPLICANTE`), presente solo se non vuoto: un pool con dieci voci vere ma
+irrilevanti per un annuncio specifico deve poter produrre un `additional_info` vuoto, allo
+stesso modo in cui un'esperienza che non aggiunge nulla resta fuori da `experience` (§9).
+Il tetto di tre voci non è arbitrario: è la stessa logica delle cinque `top_keywords`,
+abbastanza piccolo da restare una scelta editoriale e non un elenco scaricato in fondo al
+documento.
+
+**La quarta regola del validatore non è una regola nuova, è la stessa regola 1+2 applicata
+a un'altra fonte.** `additional_info` dichiara un `source_id` che deve esistere nel pool, e
+ogni cifra nel testo riscritto deve comparire nella voce citata — identica identità di
+controllo dei bullet (§9), separata in una funzione a parte
+(`_verifica_informazioni_aggiuntive`) perché il pool non è il `MasterProfile` e i due
+elenchi, nel dominio, sono già due cose diverse. Un `additional_info` non vuoto con un pool
+vuoto o assente è sempre una violazione: non esiste nessuna fonte a cui l'id potrebbe
+appartenere, quindi il caso non richiede un ramo speciale, la stessa verifica lo intercetta.
+
+**La derivazione delle proposte non chiama un LLM.** Certificazioni e progetti sono già
+fatti veri e strutturati nel `MasterProfile`: non serve chiedere a un modello di "trovarli"
+quando l'informazione è già lì, strutturata, e la si può leggere con un confronto di
+stringhe. La sezione web (§11bis) ricalcola le proposte dal profilo e dal pool correnti a
+ogni render — non c'è un'estrazione nascosta dietro al bottone "Carica informazioni tramite
+CV", che offre solo un punto esplicito per accorgersene, e con lo stesso costo di zero
+chiamate LLM che ha reso conveniente derivare la seniority dal profilo invece di chiederla
+(§7).
 
 ## 12. Rischi noti e mitigazioni
 

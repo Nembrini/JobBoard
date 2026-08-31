@@ -100,6 +100,15 @@ inglese? `text: "Teamwork"`, `source: "Lavoro in team"`. Se per una competenza n
 riesci a indicare una `source` che esista nel profilo, quella competenza non va
 messa: è la definizione operativa di "non inventare".
 
+**`additional_info`** — al massimo tre fatti presi dal pool di informazioni
+applicante, quando c'è e quando qualcosa in esso serve davvero a questo
+annuncio. Non è un obbligo: un pool pieno di voci vere ma irrilevanti per
+QUESTO annuncio produce un `additional_info` vuoto, allo stesso modo in cui
+un'esperienza che non aggiunge nulla resta fuori da `experience`. Ogni voce
+scelta indica `source_id`, l'id esatto della voce del pool da cui viene: vale
+la stessa regola del resto, verificata allo stesso modo — un numero che il
+pool non dichiara non compare nella frase riscritta.
+
 ## Come scrivi
 
 Asciutto. Frasi brevi. Nessun avverbio di rinforzo, nessuna formula da lettera di

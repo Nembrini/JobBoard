@@ -19,6 +19,7 @@ from jobboard.models.enums import TIER_A_ATS, AtsType
 DIALECT = postgresql.dialect()
 
 EXPECTED_TABLES = {
+    "applicant_info",
     "application",
     "application_event",
     "candidate_profile",

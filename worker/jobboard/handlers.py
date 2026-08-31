@@ -32,7 +32,7 @@ from .models.enums import (
     TaskType,
 )
 from .queue import Contesto, TaskError, handler
-from .store import load_candidate, load_profile, record_llm_usage, save_profile
+from .store import load_applicant_info, load_candidate, load_profile, record_llm_usage, save_profile
 from .store.objects import download, upload
 
 if TYPE_CHECKING:
@@ -368,6 +368,10 @@ def generate_cv(ctx: Contesto) -> dict[str, Any]:
             )
         profilo = salvato.profile
         gaps = list(match.gaps or [])
+        # Facoltativo: nessuna voce salvata e' un pool vuoto, non un errore. Il
+        # prompt lo tratta allo stesso modo (blocco assente se non ci sono voci).
+        pool_salvato = load_applicant_info(session)
+        pool = pool_salvato.bank if pool_salvato else None
 
     # Gli oggetti restano leggibili fuori dalla sessione: la factory e'
     # configurata con expire_on_commit=False proprio per questo.
@@ -380,6 +384,7 @@ def generate_cv(ctx: Contesto) -> dict[str, Any]:
             job,
             percorso_locale,
             gaps=gaps,
+            applicant_info=pool,
             settings=settings,
             avanza=ctx.avanza,
         )

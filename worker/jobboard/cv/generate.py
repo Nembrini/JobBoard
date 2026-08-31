@@ -25,7 +25,7 @@ from ..ai.tailor import TailoredCV, language_for, tailor
 from ..ai.validator import Violazione, feedback, validate
 from ..config import Settings, get_settings
 from ..models import Job
-from ..schemas import MasterProfile
+from ..schemas import ApplicantInfoBank, MasterProfile
 from .fit import FitReport, fit_to_one_page
 
 log = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ def generate(
     *,
     gaps: list[str] | None = None,
     lingua: str | None = None,
+    applicant_info: ApplicantInfoBank | None = None,
     settings: Settings | None = None,
     max_tentativi: int = MAX_TENTATIVI,
     avanza: object = None,
@@ -141,13 +142,14 @@ def generate(
             job,
             lingua=lingua,
             gaps=gaps,
+            applicant_info=applicant_info,
             model=modello,
             correzioni=correzioni,
         )
         usi.append(risultato.usage)
         cv = risultato.value
 
-        ultime = validate(cv, profile)
+        ultime = validate(cv, profile, applicant_info)
         if not ultime:
             log.info(
                 "CV generato al tentativo %d: %d bullet, %d parole",
@@ -171,7 +173,16 @@ def generate(
     if riporta:
         riporta(60, "impagino e verifico che stia in una pagina")
 
-    fit = fit_to_one_page(provider, cv, profile, job, destinazione, lingua=lingua, model=modello)
+    fit = fit_to_one_page(
+        provider,
+        cv,
+        profile,
+        job,
+        destinazione,
+        lingua=lingua,
+        applicant_info=applicant_info,
+        model=modello,
+    )
     usi.extend(fit.usi)
 
     return GeneratedCV(

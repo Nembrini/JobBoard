@@ -30,7 +30,7 @@ import logging
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import Job
-from ..schemas import MasterProfile
+from ..schemas import ApplicantInfoBank, MasterProfile
 from .client import LLMProvider, LLMResult
 from .prompts import load
 
@@ -113,6 +113,25 @@ class TailoredSkill(_Response):
     )
 
 
+class TailoredHighlight(_Response):
+    """Un fatto scelto dal pool di informazioni applicante, riscritto per l'annuncio.
+
+    Non e' un bullet di un'esperienza: non ha un'azienda sotto cui stare, e per
+    questo vive in un elenco a parte (``TailoredCV.additional_info``) invece che
+    dentro ``TailoredExperience``. La provenienza dichiarata e' la stessa idea
+    di ``TailoredBullet.source_id``, ma punta a un id del pool, non a un bullet
+    del profilo.
+    """
+
+    source_id: str = Field(
+        description=(
+            "L'id ESATTO della voce nel pool di informazioni applicante da cui "
+            "questa frase deriva. Non inventarlo."
+        )
+    )
+    text: str = Field(description="La frase riscritta per questo annuncio. Una riga.")
+
+
 class TailoredSkills(_Response):
     hard: list[TailoredSkill] = Field(
         default_factory=list,
@@ -136,6 +155,14 @@ class TailoredCV(_Response):
     summary: str = Field(description="45-60 parole, calibrate su questo annuncio.")
     experience: list[TailoredExperience] = Field(default_factory=list)
     skills: TailoredSkills = Field(default_factory=TailoredSkills)
+    additional_info: list[TailoredHighlight] = Field(
+        default_factory=list,
+        description=(
+            "Al massimo 3 fatti presi dal pool di informazioni applicante, solo "
+            "se pertinenti per QUESTO annuncio. Vuoto se nessuno lo e': un pool "
+            "non vuoto non obbliga a usarne per forza qualcuno."
+        ),
+    )
 
     def bullet_count(self) -> int:
         return sum(len(e.bullets) for e in self.experience)
@@ -145,6 +172,7 @@ class TailoredCV(_Response):
         parole = len(self.summary.split())
         for esperienza in self.experience:
             parole += sum(len(b.text.split()) for b in esperienza.bullets)
+        parole += sum(len(voce.text.split()) for voce in self.additional_info)
         return parole
 
 
@@ -177,9 +205,27 @@ def system_prompt(lingua: str) -> str:
     )
 
 
-def build_prompt(profile: MasterProfile, job: Job, gaps: list[str] | None = None) -> str:
+def build_prompt(
+    profile: MasterProfile,
+    job: Job,
+    gaps: list[str] | None = None,
+    applicant_info: ApplicantInfoBank | None = None,
+) -> str:
     """Prima il materiale disponibile, poi l'annuncio a cui va adattato."""
     blocchi = [_profile_block(profile), "=" * 60, _job_block(job)]
+    if applicant_info and applicant_info.items:
+        # Sta dopo l'annuncio e non dentro il profilo: e' materiale supplementare,
+        # non il CV master, e la distinzione deve restare visibile nel prompt
+        # tanto quanto lo e' nello schema (due elenchi separati, due regole di
+        # provenienza separate in ai/validator.py).
+        blocchi += [
+            "=" * 60,
+            "## INFORMAZIONI APPLICANTE (facoltative)\n\n"
+            "Fatti extra dichiarati dal candidato, non ancora dentro il CV master. "
+            "Usane al massimo 3, solo quelle pertinenti per QUESTO annuncio, citando "
+            "l'id esatto in `additional_info`. Se nessuna e' pertinente, lascia "
+            f"l'elenco vuoto: non e' un obbligo.\n\n{applicant_info.to_prompt_block()}",
+        ]
     if gaps:
         # I gap li ha gia' calcolati lo Stadio 2 e sono salvati sul match. Darli
         # al generatore serve a una cosa sola: che non provi a colmarli. Senza,
@@ -256,6 +302,7 @@ def tailor(
     *,
     lingua: str | None = None,
     gaps: list[str] | None = None,
+    applicant_info: ApplicantInfoBank | None = None,
     model: str | None = None,
     correzioni: str | None = None,
 ) -> LLMResult[TailoredCV]:
@@ -271,7 +318,7 @@ def tailor(
     tentativi.
     """
     lingua = lingua or language_for(job)
-    prompt = build_prompt(profile, job, gaps)
+    prompt = build_prompt(profile, job, gaps, applicant_info)
     if correzioni:
         prompt = f"{prompt}\n\n{'=' * 60}\n\n{correzioni}"
 
@@ -292,6 +339,7 @@ def compress(
     *,
     eccesso: float,
     lingua: str | None = None,
+    applicant_info: ApplicantInfoBank | None = None,
     model: str | None = None,
 ) -> LLMResult[TailoredCV]:
     """Riscrive il CV piu' corto, perche' non sta in una pagina.
@@ -313,10 +361,13 @@ def compress(
         f"Il CV qui sotto occupa piu' di una pagina: va ridotto di circa "
         f"{da_togliere} parole su {cv.word_count()}.\n\n"
         "Come:\n"
-        "1. Elimina per intero i bullet meno rilevanti per questo annuncio. "
+        "1. Se `additional_info` non e' vuoto, togline prima le voci meno "
+        "rilevanti: e' materiale facoltativo, aggiunto per completezza, e va via "
+        "prima di un bullet di un'esperienza vera.\n"
+        "2. Elimina per intero i bullet meno rilevanti per questo annuncio. "
         "Un bullet in meno vale piu' di cinque bullet limati.\n"
-        "2. Se non basta, accorcia il summary restando sopra le 45 parole.\n"
-        "3. Togli dalle competenze quelle che l'annuncio non chiede.\n\n"
+        "3. Se non basta, accorcia il summary restando sopra le 45 parole.\n"
+        "4. Togli dalle competenze quelle che l'annuncio non chiede.\n\n"
         "Cosa NON fare: riscrivere le frasi che restano, cambiare un `source_id`, "
         "aggiungere qualcosa che prima non c'era. Le frasi tenute vanno tenute "
         "identiche.\n\n"
@@ -324,7 +375,7 @@ def compress(
     )
 
     return provider.generate_structured(
-        f"{build_prompt(profile, job)}\n\n{'=' * 60}\n\n{istruzioni}",
+        f"{build_prompt(profile, job, None, applicant_info)}\n\n{'=' * 60}\n\n{istruzioni}",
         TailoredCV,
         system=system_prompt(lingua),
         model=model,

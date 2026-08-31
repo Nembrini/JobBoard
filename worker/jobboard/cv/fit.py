@@ -27,7 +27,7 @@ from ..ai.client import LLMProvider, LLMUsage
 from ..ai.tailor import TailoredCV, compress
 from ..ai.validator import Violazione, validate
 from ..models import Job
-from ..schemas import MasterProfile
+from ..schemas import ApplicantInfoBank, MasterProfile
 from .render import DENSITA, Densita, build_html, content_pages, page_count, render_pdf
 
 log = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ def fit_to_one_page(
     destinazione: Path,
     *,
     lingua: str,
+    applicant_info: ApplicantInfoBank | None = None,
     model: str | None = None,
     max_compressioni: int = MAX_COMPRESSIONI,
 ) -> FitReport:
@@ -122,12 +123,19 @@ def fit_to_one_page(
             break
 
         risultato = compress(
-            provider, report.cv, profile, job, eccesso=eccesso, lingua=lingua, model=model
+            provider,
+            report.cv,
+            profile,
+            job,
+            eccesso=eccesso,
+            lingua=lingua,
+            applicant_info=applicant_info,
+            model=model,
         )
         report.usi.append(risultato.usage)
         report.compressioni += 1
 
-        if violazioni := validate(risultato.value, profile):
+        if violazioni := validate(risultato.value, profile, applicant_info):
             # La compressione ha inventato qualcosa: si scarta *lei*, non il
             # documento. Insistere con un'altra compressione partirebbe da un
             # testo gia' sporco.

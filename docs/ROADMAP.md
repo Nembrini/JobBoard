@@ -2,7 +2,7 @@
 
 > Per le scelte tecniche e il perché di ognuna vedi [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-**Stima totale: ~16 giorni-uomo.**
+**Stima totale: ~17 giorni-uomo.**
 **MVP online e navigabile alla fine della Fase 4** (~5 giorni): dashboard pubblica con
 tabella e punteggi di compatibilità, candidatura ancora manuale.
 
@@ -528,6 +528,60 @@ suggerita: dopo una run reale, `jb costs show` deve elencare almeno una riga
 (prezzo dalla console del provider) deve far comparire un costo in `/costi` invece
 di "n.d."; `jb backup run` deve produrre uno `.zip` in `data/backups/` apribile e
 con un CSV per ciascuna delle 14 tabelle.
+
+---
+
+## Fase 11 — Filtro sulla città e pool di informazioni applicante · 1 gg
+
+- [x] **11.1** Filtro sulla città allo Stadio 0 (`filters._city_reject`,
+      `criteria.MatchCriteria.home_city`/`restrict_to_home_city`): un annuncio non remoto
+      **dichiarato** in una città diversa da `home_city` (da `candidate_profile.city`,
+      altrimenti `master_profile.contact.city`) viene scartato con motivo `"città"`. Un
+      annuncio senza città dichiarata non viene toccato — stessa regola "un dato mancante
+      non esclude" del resto dello Stadio 0. Spegnibile da `restrict_to_home_city`
+      (default acceso) nella riga `settings` di tipo `matching`.
+- [x] **11.2** Pool di informazioni applicante: tabella singleton `applicant_info`
+      (migration `9c4a1e6f0b32`), schema Pydantic `jobboard.schemas.applicant_info` e il suo
+      specchio Zod `web/src/lib/applicant-info.ts`, store
+      `jobboard.store.applicant_info.{load,save}_applicant_info`, comandi
+      `jb info show|add|remove|clear`. Voci libere (etichetta + testo, id kebab-case
+      stabile), separate sia dal `MasterProfile` sia da `CandidateAnswers` — vedi
+      ARCHITECTURE.md per il perché di una terza tabella e non un'estensione delle due
+      esistenti.
+- [x] **11.3** La Fase 6 pesca dal pool: `ai/tailor.py` aggiunge un blocco facoltativo al
+      prompt (solo se il pool non è vuoto) e un campo `TailoredCV.additional_info` — al
+      massimo tre voci, scelte solo se pertinenti per l'annuncio, ognuna con `source_id`.
+      Quarta regola del validatore anti-invenzione
+      (`ai/validator._verifica_informazioni_aggiuntive`): stessa identità di controllo dei
+      bullet, `source_id` deve esistere nel pool e le cifre devono comparire nella voce
+      citata. Il template (`resume.html.j2`) stampa una sezione "Informazioni aggiuntive"
+      (nome tradotto per lingua in `render.HEADINGS`) solo quando il modello ne ha scelta
+      almeno una. Il loop di fit (`cv/fit.py`) toglie prima le voci di `additional_info`,
+      poi i bullet: è materiale facoltativo, va via per primo.
+- [x] **11.4** Sezione **Informazioni applicante** nella pagina `/cv`
+      (`components/cv/applicant-info-editor.tsx`): elenco modificabile con lo stesso
+      modello "un solo stato, un solo salvataggio" del resto dell'editor del profilo,
+      cancellazione di una singola voce o di tutte, e un riquadro a parte con le voci che
+      certificazioni e progetti del CV rivisto suggeriscono e il pool non ha ancora —
+      derivazione deterministica (`derivaInformazioniDalProfilo`), senza chiamata LLM,
+      ognuna salvabile con un bottone dedicato.
+
+**Verifica fatta:** suite worker **474 test** (446 + 28 nuove, su schema e validatore del
+pool e sul filtro città in `pipeline.criteria`/`pipeline.filters`), `ruff`, `ruff format` e
+`mypy --strict` puliti. Lato web: `tsc` (via `next build`), `eslint` e `next build` puliti
+con i tipi generati da `next typegen`, inclusa la sezione Informazioni applicante.
+
+**Resta aperto:** nessuna prova contro un Postgres vero — questo ambiente non ha un
+database, quindi la migration `9c4a1e6f0b32` non è mai stata applicata a uno schema reale
+né la tabella `applicant_info` è mai stata letta o scritta davvero, e il filtro sulla
+città non ha mai scartato un annuncio vero dalla tabella `job`. Nessuna generazione di CV
+con un LLM vero che scelga (o scarti) una voce di `additional_info`: il comportamento è
+verificato solo con il provider finto dei test. Prima verifica end-to-end suggerita: dopo
+`alembic upgrade head`, `jb info add` seguito da `jb cv generate` su un annuncio la cui
+job description nomina esplicitamente un fatto presente nel pool deve produrre un PDF con
+la sezione "Informazioni aggiuntive"; un CV generato con `restrict_to_home_city` acceso e
+un `home_city` impostato non deve più mostrare in dashboard annunci on-site fuori da
+quella città dopo la prossima `jb match --commit`.
 
 ---
 

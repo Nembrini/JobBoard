@@ -72,6 +72,7 @@ HEADINGS: dict[str, dict[str, str]] = {
         "formazione": "Formazione",
         "certificazioni": "Certificazioni",
         "lingue": "Lingue",
+        "informazioni_aggiuntive": "Informazioni aggiuntive",
         "in_corso": "Presente",
     },
     "en": {
@@ -82,6 +83,7 @@ HEADINGS: dict[str, dict[str, str]] = {
         "formazione": "Education",
         "certificazioni": "Certifications",
         "lingue": "Languages",
+        "informazioni_aggiuntive": "Additional Information",
         "in_corso": "Present",
     },
     "de": {
@@ -92,6 +94,7 @@ HEADINGS: dict[str, dict[str, str]] = {
         "formazione": "Ausbildung",
         "certificazioni": "Zertifikate",
         "lingue": "Sprachen",
+        "informazioni_aggiuntive": "Weitere Informationen",
         "in_corso": "Heute",
     },
     "es": {
@@ -102,6 +105,7 @@ HEADINGS: dict[str, dict[str, str]] = {
         "formazione": "Formación",
         "certificazioni": "Certificaciones",
         "lingue": "Idiomas",
+        "informazioni_aggiuntive": "Información adicional",
         "in_corso": "Actualidad",
     },
     "fr": {
@@ -112,6 +116,7 @@ HEADINGS: dict[str, dict[str, str]] = {
         "formazione": "Formation",
         "certificazioni": "Certifications",
         "lingue": "Langues",
+        "informazioni_aggiuntive": "Informations complémentaires",
         "in_corso": "Aujourd'hui",
     },
 }

@@ -5,6 +5,7 @@ sbagliano facilmente — il vincolo di singleton sul profilo, la serializzazione
 dell'embedding, il flag ``reviewed`` — stanno in un posto solo.
 """
 
+from .applicant_info import StoredApplicantInfo, load_applicant_info, save_applicant_info
 from .llm_usage import record_llm_usage, usage_since
 from .profile import (
     StoredCandidate,
@@ -17,12 +18,15 @@ from .profile import (
 )
 
 __all__ = [
+    "StoredApplicantInfo",
     "StoredCandidate",
     "StoredProfile",
+    "load_applicant_info",
     "load_candidate",
     "load_profile",
     "mark_reviewed",
     "record_llm_usage",
+    "save_applicant_info",
     "save_candidate",
     "save_profile",
     "usage_since",
