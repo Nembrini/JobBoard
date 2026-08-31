@@ -128,11 +128,11 @@ browser che devi guardare mentre compila un form — che non può girare su un s
 | 1 · Profilo e CV master | ✅ | Parsing PDF/DOCX, `MasterProfile`, risposte ATS, embedding locale |
 | 2 · Ingestione | ✅ | 10 adapter, normalizzazione, parsing RAL, dedup SimHash |
 | 3 · Matching | ✅ | Imbuto a 3 stadi, rubrica pesata, calibrazione dei pesi |
-| 4 · Dashboard | 🔸 | Auth Google, tabella, filtri, drawer — manca il deploy in produzione |
+| 4 · Dashboard | ✅ | Auth Google, tabella, filtri, drawer — in produzione su Vercel, login verificato |
 | 5 · Ponte UI↔worker | ✅ | Coda task, heartbeat, progresso |
 | 6 · Generazione CV | ✅ | Tailoring ACR, validatore anti-invenzione, fit a una pagina |
 | 7 · Candidatura | 🔸 | Router, form precompilato (selettori noti + euristica), guardrail — non ancora provato su un annuncio vero |
-| 8 · Run giornaliera | 🔸 | Raccolta automatica, digest email, pagina Impostazioni e Cronologia — non ancora provate con un account Gmail vero |
+| 8 · Run giornaliera | ✅ | Raccolta automatica, digest email, pagina Impostazioni e Cronologia — provate con un account Gmail vero |
 | 9 · Tracking | 🔸 | Stati, lettura IMAP, classificazione risposte, promemoria, metriche — non ancora provato con un account Gmail e un LLM veri |
 | 10 · Rifinitura | 🔸 | Dashboard costi (`/costi`), backup CSV automatico — manca solo la ricalibrazione dei pesi, che serve due settimane d'uso reale |
 | 11 · Città e informazioni applicante | 🔸 | Filtro sulla città allo Stadio 0, pool libero di informazioni applicante (`jb info`, sezione CV) che la Fase 6 può citare in aggiunta al profilo — non ancora provato contro un Postgres e un LLM veri |
