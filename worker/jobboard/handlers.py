@@ -8,8 +8,11 @@ LLM.
 
 from __future__ import annotations
 
+import dataclasses
+import datetime as dt
 import logging
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,8 +35,10 @@ from .store import load_candidate, load_profile, save_profile
 from .store.objects import download, upload
 
 if TYPE_CHECKING:
+    from .config import Settings
     from .pipeline.ingest import IngestReport
     from .pipeline.match import MatchReport
+    from .tracking.imap_reader import EmailHeader
 
 log = logging.getLogger(__name__)
 
@@ -205,7 +210,27 @@ def run_pipeline(ctx: Contesto) -> dict[str, Any]:
         errore_digest = str(exc)
         log.warning("digest non inviato: %s", exc)
 
-    return _riepilogo(raccolta, valutazione, settings.match_threshold, inviate, errore_digest)
+    # Stesso principio del digest: il controllo email e' un effetto
+    # collaterale della run giornaliera, non il lavoro. Un IMAP giu' o una
+    # chiave LLM scaduta non devono far fallire un task che ha gia' salvato
+    # raccolta, punteggi e (se e' andata bene) il digest.
+    controllo_email: dict[str, Any] | None = None
+    errore_email: str | None = None
+    try:
+        controllo_email = run_email_check(settings)
+    except TaskError as exc:
+        errore_email = str(exc)
+        log.warning("controllo email non riuscito: %s", exc)
+
+    return _riepilogo(
+        raccolta,
+        valutazione,
+        settings.match_threshold,
+        inviate,
+        errore_digest,
+        controllo_email,
+        errore_email,
+    )
 
 
 def _riepilogo(
@@ -214,6 +239,8 @@ def _riepilogo(
     soglia: int,
     notifica_annunci: int,
     notifica_errore: str | None,
+    controllo_email: dict[str, Any] | None,
+    errore_email: str | None,
 ) -> dict[str, Any]:
     """Quello che finisce in ``task.result`` e che la dashboard mostra a fine run.
 
@@ -240,6 +267,11 @@ def _riepilogo(
         # soglia non e' un errore, e' il caso comune di una run tranquilla.
         "notifica_annunci": notifica_annunci,
         "notifica_errore": notifica_errore,
+        # None quando il tracciamento e' disattivato nelle Impostazioni: non e'
+        # lo stesso di "controllato, zero mail nuove" (un dizionario con gli
+        # zeri dentro), e la dashboard deve poter distinguere i due casi.
+        "controllo_email": controllo_email,
+        "controllo_email_errore": errore_email,
     }
 
 
@@ -668,3 +700,266 @@ def _application_per(session: Session, match_id: int, job: Job) -> Application:
     )
     session.add(candidatura)
     return candidatura
+
+
+@dataclasses.dataclass(frozen=True)
+class _CandidaturaInAttesa:
+    """Quel poco che serve della candidatura per la fase IMAP+LLM.
+
+    Letta dentro una sessione e usata fuori: la fase lenta (una connessione
+    IMAP piu' un giudizio LLM per ogni mail nuova) non deve tenerne una
+    aperta, stesso motivo delle "tre transazioni separate" di ``generate_cv``.
+    """
+
+    application_id: int
+    job_title: str
+    company: str
+    company_normalized: str
+    since: dt.date
+    known_message_ids: frozenset[str]
+
+
+@handler(TaskType.CHECK_EMAIL)
+def check_email(ctx: Contesto) -> dict[str, Any]:
+    """Legge la posta, classifica le risposte, aggiorna gli stati (Fase 9).
+
+    Stessa funzione dietro il bottone "Controlla posta adesso" in dashboard e
+    dietro la run giornaliera (``run_pipeline``, subito dopo il digest): due
+    strade non devono produrre due risultati diversi, lo stesso principio di
+    ``generate_cv``/``jb cv generate``.
+    """
+    from .config import get_settings
+
+    ctx.avanza(2, "leggo le candidature in attesa di risposta")
+    return run_email_check(get_settings(), avanza=ctx.avanza)
+
+
+def run_email_check(
+    settings: Settings, *, avanza: Callable[[int, str], None] | None = None
+) -> dict[str, Any]:
+    """Il lavoro vero: tre fasi, come ``generate_cv``/``apply_to_job``.
+
+    Una lettura breve (chi e' in attesa, da quando, cosa e' gia' stato letto),
+    il lavoro lento senza nessuna sessione aperta (una ricerca IMAP piu' un
+    giudizio LLM per ogni mail nuova), poi una scrittura breve. Il digest e il
+    promemoria restano fuori dalla sessione di scrittura per lo stesso motivo
+    del digest in ``run_pipeline``: una mail non partita non deve far fallire
+    quello che e' gia' stato salvato.
+    """
+    # Import ritardati: il client LLM e imaplib non devono pesare su un
+    # worker che sta solo scrivendo il battito.
+    from .ai.client import get_provider
+    from .models.enums import EmailClass
+    from .notify.mailer import MailError
+    from .tracking.classifier import classify, is_new_message, next_status
+    from .tracking.followup import WAITING_STATUSES, find_due, send_followup_reminders
+    from .tracking.imap_reader import ImapError, ImapMailbox, select_related
+    from .tracking.settings import load_tracking_settings
+
+    def _step(percentuale: int, messaggio: str) -> None:
+        if avanza:
+            avanza(percentuale, messaggio)
+
+    vuoto = {
+        "attivo": False,
+        "candidature_controllate": 0,
+        "mail_nuove": 0,
+        "cambi_stato": 0,
+        "promemoria_dovuti": 0,
+        "promemoria_inviati": 0,
+    }
+
+    with session_scope() as session:
+        tracking = load_tracking_settings(session)
+        if not tracking.enabled:
+            return vuoto
+
+        righe = (
+            session.query(Application, Job)
+            .join(Match, Match.id == Application.match_id)
+            .join(Job, Job.id == Match.job_id)
+            .filter(Application.status.in_(list(WAITING_STATUSES)))
+            .all()
+        )
+        grezzi = (_contesto_per(candidatura, job) for candidatura, job in righe)
+        contesti = [c for c in grezzi if c is not None]
+
+    if not contesti:
+        return {**vuoto, "attivo": True}
+
+    _step(15, f"{len(contesti)} candidature in attesa, apro la casella")
+    try:
+        mailbox = ImapMailbox(settings)
+    except ImapError as exc:
+        # Definitivo: una casella irraggiungibile o una password sbagliata non
+        # si aggiusta ritentando lo stesso task subito dopo, e il prossimo
+        # controllo utile arriva comunque da solo (il bottone, o la run di
+        # domani) senza bisogno di tenere questo in coda.
+        raise TaskError(str(exc), definitivo=True) from exc
+
+    esiti: dict[int, list[tuple[EmailHeader, EmailClass, str]]] = {}
+    try:
+        since_globale = min(c.since for c in contesti)
+        headers = mailbox.search_since(since_globale)
+        _step(30, f"{len(headers)} messaggi nella finestra, correlo per candidatura")
+
+        provider = get_provider(settings)
+        for indice, contesto in enumerate(contesti):
+            correlate = select_related(
+                headers,
+                since=contesto.since,
+                company_normalized=contesto.company_normalized,
+                known_message_ids=contesto.known_message_ids,
+            )
+            known = contesto.known_message_ids
+            nuove = [h for h in correlate if is_new_message(h.message_id, known)]
+            classificate: list[tuple[EmailHeader, EmailClass, str]] = []
+            for intestazione in nuove:
+                corpo = mailbox.fetch_body(intestazione.uid)
+                risultato = classify(
+                    provider,
+                    company=contesto.company,
+                    job_title=contesto.job_title,
+                    subject=intestazione.subject,
+                    body=corpo,
+                    model=settings.model_classify,
+                )
+                classificate.append(
+                    (intestazione, risultato.value.classification, risultato.value.summary)
+                )
+            if classificate:
+                esiti[contesto.application_id] = classificate
+            _step(
+                30 + int(55 * (indice + 1) / len(contesti)),
+                f"{contesto.company}: {len(classificate)} mail nuove",
+            )
+    finally:
+        mailbox.close()
+
+    _step(88, "salvo gli stati aggiornati")
+    ora = utcnow()
+    mail_nuove = 0
+    cambi_stato = 0
+    controllate_id = {c.application_id for c in contesti}
+    promemoria_dovuti: list[Any] = []
+
+    with session_scope() as session:
+        for application_id, classificate in esiti.items():
+            riga = session.get(Application, application_id)
+            if riga is None:  # pragma: no cover - difensivo, non sparisce fra le due sessioni
+                continue
+            for intestazione, classe, riassunto in sorted(classificate, key=lambda t: t[0].date):
+                mail_nuove += 1
+                precedente = riga.status
+                riga.status = next_status(riga.status, classe)
+                session.add(
+                    ApplicationEvent(
+                        application_id=riga.id,
+                        event_type=ApplicationEventType.EMAIL_RECEIVED,
+                        occurred_at=intestazione.date,
+                        note=riassunto[:500],
+                        payload={
+                            "message_id": intestazione.message_id,
+                            "from": intestazione.sender,
+                            "subject": intestazione.subject,
+                            "classification": classe.value,
+                        },
+                    )
+                )
+                if riga.status is not precedente:
+                    cambi_stato += 1
+                    session.add(
+                        ApplicationEvent(
+                            application_id=riga.id,
+                            event_type=ApplicationEventType.STATUS_CHANGED,
+                            occurred_at=ora,
+                            note=(
+                                f"{precedente.value} -> {riga.status.value}, da una mail "
+                                f"classificata {classe.value}"
+                            ),
+                            payload={"from": precedente.value, "to": riga.status.value},
+                        )
+                    )
+            riga.last_email_checked_at = ora
+
+        # Le candidature senza mail nuove hanno comunque appena avuto una
+        # ricerca che copriva la loro finestra: aggiornare il loro
+        # ``last_email_checked_at`` restringe la ricerca di domani, anche se
+        # oggi non hanno prodotto niente.
+        for application_id in controllate_id - esiti.keys():
+            riga = session.get(Application, application_id)
+            if riga is not None:
+                riga.last_email_checked_at = ora
+
+        candidature_e_job = (
+            session.query(Application, Job)
+            .join(Match, Match.id == Application.match_id)
+            .join(Job, Job.id == Match.job_id)
+            .filter(Application.id.in_(controllate_id))
+            .all()
+        )
+        # ``Row`` di SQLAlchemy si comporta come una tupla ma non e' tipizzato
+        # come tale: la comprensione lo rende esplicito per mypy, non solo per
+        # il runtime, che gia' funzionerebbe senza.
+        coppie = [(candidatura, job) for candidatura, job in candidature_e_job]
+        promemoria_dovuti = find_due(coppie, tracking=tracking, now=ora)
+        for dovuto in promemoria_dovuti:
+            riga = session.get(Application, dovuto.application_id)
+            if riga is not None:
+                riga.follow_up_due_at = ora
+                session.add(
+                    ApplicationEvent(
+                        application_id=riga.id,
+                        event_type=ApplicationEventType.FOLLOW_UP_DUE,
+                        occurred_at=ora,
+                        note=f"{dovuto.days_silent} giorni senza risposta",
+                    )
+                )
+
+    promemoria_inviati = 0
+    errore_promemoria: str | None = None
+    if promemoria_dovuti:
+        try:
+            promemoria = send_followup_reminders(tracking, promemoria_dovuti, settings)
+            promemoria_inviati = promemoria.count if promemoria else 0
+        except MailError as exc:
+            errore_promemoria = str(exc)
+            log.warning("promemoria di follow-up non inviato: %s", exc)
+
+    log.info(
+        "controllo email: %d candidature, %d mail nuove, %d cambi di stato, %d promemoria",
+        len(contesti),
+        mail_nuove,
+        cambi_stato,
+        promemoria_inviati,
+    )
+    return {
+        "attivo": True,
+        "candidature_controllate": len(contesti),
+        "mail_nuove": mail_nuove,
+        "cambi_stato": cambi_stato,
+        "promemoria_dovuti": len(promemoria_dovuti),
+        "promemoria_inviati": promemoria_inviati,
+        "promemoria_errore": errore_promemoria,
+    }
+
+
+def _contesto_per(candidatura: Application, job: Job) -> _CandidaturaInAttesa | None:
+    riferimento = candidatura.last_email_checked_at or candidatura.submitted_at
+    if riferimento is None:  # pragma: no cover - lo stato "in attesa" lo implica gia'
+        return None
+    known = frozenset(
+        str(evento.payload.get("message_id"))
+        for evento in candidatura.events
+        if evento.event_type is ApplicationEventType.EMAIL_RECEIVED
+        and evento.payload
+        and evento.payload.get("message_id")
+    )
+    return _CandidaturaInAttesa(
+        application_id=candidatura.id,
+        job_title=job.title,
+        company=job.company,
+        company_normalized=job.company_normalized,
+        since=riferimento.date(),
+        known_message_ids=known,
+    )

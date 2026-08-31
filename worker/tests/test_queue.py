@@ -187,6 +187,8 @@ def test_il_riepilogo_nomina_le_fonti_cadute() -> None:
         soglia=65,
         notifica_annunci=0,
         notifica_errore=None,
+        controllo_email=None,
+        errore_email=None,
     )
 
     assert riepilogo["fonti_fallite"] == ["jooble"]

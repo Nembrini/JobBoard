@@ -1,7 +1,9 @@
 import { NotificationsForm } from "@/components/settings/notifications-form";
+import { TrackingForm } from "@/components/settings/tracking-form";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/dal";
 import { getNotificationSettings } from "@/lib/notifications";
+import { getTrackingSettings } from "@/lib/tracking-settings";
 
 export const metadata = { title: "Impostazioni" };
 
@@ -15,7 +17,10 @@ export const metadata = { title: "Impostazioni" };
  */
 export default async function ImpostazioniPage() {
   await requireSession();
-  const notifiche = await getNotificationSettings();
+  const [notifiche, tracciamento] = await Promise.all([
+    getNotificationSettings(),
+    getTrackingSettings(),
+  ]);
 
   return (
     <>
@@ -30,6 +35,7 @@ export default async function ImpostazioniPage() {
         </div>
 
         <NotificationsForm iniziale={notifiche} />
+        <TrackingForm iniziale={tracciamento} />
       </main>
     </>
   );

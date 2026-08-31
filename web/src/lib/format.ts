@@ -75,6 +75,28 @@ export const SENIORITY_LABEL: Record<string, string> = {
   unknown: "n.d.",
 };
 
+/**
+ * Gli stati della candidatura mostrati in `/candidature` (Fase 9.1).
+ *
+ * Solo i sei che la pagina rende modificabili a mano — `draft`, `cv_ready`,
+ * `approved` e `needs_human` vivono nella pagina dell'annuncio, dove si decide
+ * se e come spedire, non qui, dove si segue cosa è successo dopo.
+ */
+export const APPLICATION_STATUS_LABEL: Record<string, string> = {
+  submitted: "Inviata",
+  acknowledged: "In attesa",
+  interview: "Colloquio",
+  rejected: "Rifiutata",
+  offer: "Offerta",
+  withdrawn: "Ritirata",
+};
+
+export const APPLICATION_TIER_LABEL: Record<string, string> = {
+  a_auto: "Selettori dedicati",
+  b_assisted: "Euristica",
+  c_manual: "Manuale",
+};
+
 export const RUBRIC_LABEL: Record<string, string> = {
   must_have_coverage: "Requisiti obbligatori",
   nice_to_have_coverage: "Requisiti graditi",

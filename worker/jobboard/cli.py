@@ -20,6 +20,7 @@ from .commands import (
     apply_app,
     candidate_app,
     cv_app,
+    email_app,
     ingest_command,
     match_command,
     matches_app,
@@ -64,6 +65,7 @@ app.add_typer(matches_app)
 app.add_typer(cv_app)
 app.add_typer(apply_app)
 app.add_typer(work_app)
+app.add_typer(email_app)
 app.command(name="ingest")(ingest_command)
 app.command(name="match")(match_command)
 console = Console()

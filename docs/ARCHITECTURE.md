@@ -877,6 +877,84 @@ worker porta una candidatura solo fino a `needs_human` — due nuovi eventi,
 - **nessun aggiramento** di CAPTCHA o sistemi anti-bot — il vincolo che ha
   reso necessaria la correzione qui sopra, non un'aggiunta successiva
 
+## 10bis. Tracciamento post-candidatura (Fase 9)
+
+Simmetrico al digest della Fase 8.3 ma con lo scopo opposto: quello scrive verso
+Filippo, questo **legge** — le risposte dei recruiter nella stessa casella Gmail — e
+aggiorna lo stato della candidatura di conseguenza. Vive in `jobboard/tracking/`, non
+in `jobboard/notify/`: leggere e scrivere la stessa casella sono due responsabilità
+diverse, e il modulo che scrive non deve sapere come si legge, né viceversa.
+
+### La lettura IMAP è a scope ristretto, non uno scan della casella
+
+Una casella personale ha anni di posta che non riguardano nessuna candidatura.
+`imap_reader.py` applica due restrizioni, entrambe misurabili nel codice e non solo
+dichiarate:
+
+1. **`SEARCH SINCE`** parte dalla data della candidatura (`submitted_at`) o
+   dall'ultimo controllo (`last_email_checked_at`), mai dall'inizio della casella.
+2. **Il corpo si scarica solo per chi supera la correlazione.** Due chiamate IMAP
+   separate — `BODY.PEEK[HEADER...]` per gli header, `BODY.PEEK[]` per il corpo — e la
+   seconda parte solo per i messaggi che `looks_related()` (o la corrispondenza di
+   thread, sotto) ha già giudicato pertinenti. `PEEK` in entrambe, così nessuna mail
+   viene marcata come letta dal passaggio del worker.
+
+**La correlazione è un'euristica lessicale, non una certezza**, e questo è un limite
+noto, non un difetto nascosto: i token del nome azienda normalizzato
+(`job.company_normalized`, la stessa chiave della dedup della Fase 2) devono comparire
+nel mittente o nell'oggetto. Da sola non basta — un recruiter risponde spesso da un
+indirizzo Gmail personale che non contiene il nome dell'azienda da nessuna parte —
+quindi si aggiunge la correlazione **per thread**: una mail il cui `In-Reply-To`/
+`References` cita un `Message-ID` già classificato per quella candidatura resta
+correlata anche quando il mittente cambia. Quello che l'euristica lascia fuori (falsi
+negativi) è il motivo per cui la Fase 9.1 rende gli stati **modificabili a mano** dalla
+pagina Candidature: non serve che il worker riconosca tutto, serve che correggerlo
+costi dieci secondi.
+
+### Il classificatore usa il provider attivo, non "Haiku" alla lettera
+
+Il piano originale nominava Claude Haiku. Con Gemini come provider attivo (la stessa
+decisione del §5 sotto "LLM: provider intercambiabile") il classificatore passa dalla
+stessa interfaccia `ai.client.LLMProvider` di rubrica e CV, con un modello dedicato
+(`model_classify`, di default lo stesso economico di `model_scoring`) invece di
+un'implementazione Anthropic separata. "Haiku" nel piano descriveva un requisito —
+economico, veloce, adatto a un compito a basso volume — non un vincolo di provider:
+introdurre un secondo client LLM solo per questo stadio avrebbe raddoppiato la
+superficie da mantenere senza cambiare cosa il sistema fa.
+
+**La regola che sposta lo stato è nel codice** (`classifier.STATUS_BY_CLASS` e
+`next_status`), non nel prompt: al modello si chiede un giudizio fra cinque classi
+fisse, la mappatura verso `ApplicationStatus` si ritara senza rifare una chiamata,
+stesso principio della media pesata della rubrica (§7.3). `next_status` impone anche
+che uno stato non retroceda (un "ack" arrivato in ritardo dopo un colloquio già
+fissato non deve tornare indietro) e che uno stato terminale non si riapra da solo.
+
+### Il controllo email gira una volta al giorno dentro `run_pipeline`, non su un secondo scheduler
+
+Stessa scelta della Fase 8.3 per il digest, per lo stesso motivo: aggiungere una terza
+attività di Task Scheduler per un controllo che può girare subito dopo la raccolta
+notturna avrebbe significato più codice di orchestrazione senza una necessità reale —
+le risposte dei recruiter non sono urgenti al minuto. `run_email_check()` gira quindi
+in coda al digest, nella stessa `run_pipeline`, con lo stesso principio "un effetto
+collaterale non deve far fallire il lavoro già salvato": un IMAP giù o una chiave LLM
+scaduta finiscono in `task.result.controllo_email_errore`, non in un task fallito.
+
+Il bottone **"Controlla posta adesso"** nella pagina Candidature accoda lo stesso
+`TaskType.CHECK_EMAIL` a comando, per chi ha appena acceso il tracciamento e non vuole
+aspettare la run notturna — stessa relazione fra "Aggiorna adesso" e la raccolta
+automatica della Fase 5.5/8.1.
+
+### Il silenzio si misura da quando la candidatura è partita, non dall'ultimo controllo
+
+`follow_up_after_days` (impostabile in `/impostazioni`, prudente e spento di default
+come le notifiche) confronta `now` con `application.submitted_at`, **non** con
+`last_email_checked_at`. Quest'ultimo esiste per un motivo diverso — è la finestra
+`SINCE` della prossima ricerca IMAP — e usarlo per il conteggio del silenzio lo
+azzererebbe a ogni controllo: con un controllo al giorno il conteggio non
+supererebbe mai un giorno. Una volta segnato `follow_up_due_at`, la stessa
+candidatura non ricompare finché una risposta vera non la sposta fuori dagli stati "in
+attesa", o finché la data non viene corretta a mano.
+
 ## 11. Sicurezza
 
 La dashboard è su internet e contiene il CV, i dati personali e un bottone che invia
