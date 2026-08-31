@@ -55,6 +55,9 @@ fixture.
 .\jb cv generate <match-id>       # CV su misura; --no-upload lo lascia solo su disco
 .\jb cv check <file.pdf>          # come lo vedrebbe un parser ATS
 .\jb apply send <match-id>        # apre il form nel browser, lo compila, si ferma prima del submit
+.\jb costs show --days 30         # token e costo stimato per scopo/modello (Fase 10.2)
+.\jb costs price set <modello> --input X --output Y   # prezzo/1M token, letto dalla console del provider
+.\jb backup run                   # esporta ogni tabella in CSV, comprime, ruota (Fase 10.3)
 ```
 
 **`--dry-run` non prova la scrittura.** Normalizza e stampa, ma non tocca i vincoli di
@@ -216,6 +219,20 @@ I guardrail (`guardrails.py`) sono decisioni pure su numeri già contati, non qu
 giornaliero conta le candidature **preparate**, non quelle spedite — è l'apertura di un
 browser verso un sito di terzi l'azione automatica da limitare, non un invio che ormai non
 succede mai senza un click umano.
+
+### Costi LLM e backup (Fase 10, `worker/jobboard/store/llm_usage.py`, `ai/pricing.py`, `backup.py`)
+
+`llm_usage_log` prende una riga per **invocazione aggregata** (una run di matching, una
+generazione CV, ...), non per singola chiamata: sono già questi gli aggregati che pipeline e
+gestori calcolano da soli. Il prezzo per modello segue la stessa regola della RAL non
+dichiarata: **se non è stato impostato con `jb costs price set`, il costo è "n.d.", mai una
+stima** — nessun listino scritto a memoria nel codice, perché i modelli in `config.py`
+cambiano e un prezzo sbagliato sarebbe peggio di nessun prezzo.
+
+`jb backup run` esporta ogni tabella in CSV (non `pg_dump`, non garantito su Windows),
+comprime in `data/backups/` e ruota **per conteggio**, non per età — un PC spento per
+settimane non deve ritrovarsi a zero backup. Solo su disco locale: nessun bucket Supabase
+nuovo, che sarebbe un altro passo manuale in console.
 
 ## Lato web (`web/`)
 

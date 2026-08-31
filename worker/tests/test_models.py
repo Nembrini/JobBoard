@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "job",
     "job_requirements",
     "job_source_link",
+    "llm_usage_log",
     "match",
     "profile",
     "run",

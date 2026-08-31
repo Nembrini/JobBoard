@@ -24,11 +24,13 @@ from rich.table import Table
 
 from ..config import get_settings
 from ..db import session_scope
+from ..models.enums import LlmUsagePurpose
 from ..schemas import CandidateAnswers, MasterProfile
 from ..store import (
     StoredProfile,
     load_candidate,
     load_profile,
+    record_llm_usage,
     save_candidate,
     save_profile,
 )
@@ -110,7 +112,7 @@ def import_cv(
         f"con {document.method} (lingua: {document.language or 'sconosciuta'})"
     )
 
-    profile, warnings = structure(document)
+    profile, warnings, usage = structure(document)
 
     embedder = get_embedder()
     embedding = embedder.embed_profile(profile.to_embedding_text())
@@ -131,6 +133,16 @@ def import_cv(
                 reviewed=False,
                 raw_text=document.text,
                 source_file_name=document.source_name,
+            )
+            # Stessa registrazione del gestore ``reparse_profile``: due strade
+            # verso ``structure()`` non devono produrre due contabilita' diverse.
+            record_llm_usage(
+                session,
+                purpose=LlmUsagePurpose.CV_STRUCTURE,
+                model=usage.model,
+                calls=1,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
             )
         _render_profile(stored)
     else:

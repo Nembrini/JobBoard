@@ -8,7 +8,7 @@ Ogni giorno raccoglie annunci da più portali, li confronta con il tuo CV, li or
 compatibilità — e con un click genera un CV su misura per quel singolo annuncio e invia
 la candidatura.
 
-![Stato](https://img.shields.io/badge/stato-Fase%209%20in%20corso-blue)
+![Stato](https://img.shields.io/badge/stato-Fase%2010%20in%20corso-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3ECF8E?logo=supabase&logoColor=white)
@@ -134,35 +134,77 @@ browser che devi guardare mentre compila un form — che non può girare su un s
 | 7 · Candidatura | 🔸 | Router, form precompilato (selettori noti + euristica), guardrail — non ancora provato su un annuncio vero |
 | 8 · Run giornaliera | 🔸 | Raccolta automatica, digest email, pagina Impostazioni e Cronologia — non ancora provate con un account Gmail vero |
 | 9 · Tracking | 🔸 | Stati, lettura IMAP, classificazione risposte, promemoria, metriche — non ancora provato con un account Gmail e un LLM veri |
-| 10 · Rifinitura | ⬜ | Ricalibrazione, costi API, backup |
+| 10 · Rifinitura | 🔸 | Dashboard costi (`/costi`), backup CSV automatico — manca solo la ricalibrazione dei pesi, che serve due settimane d'uso reale |
 
 Dettaglio completo con sottofasi e criteri di verifica in **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 
-## Setup
+## Setup da zero
+
+Sei passi, in ordine: un account non ha senso prima di sapere a cosa serve, e il
+worker non ha un database finché le migration non girano almeno una volta.
 
 <details open>
-<summary><b>Worker</b> — Python 3.12 richiesto</summary>
+<summary><b>0. Account e chiavi</b> — solo sui siti veri, non da questa pagina</summary>
+
+Serve un progetto **Supabase** (Postgres + Storage, region `eu-central-1`), un
+account **Vercel** collegato al repository, credenziali **Google OAuth** e le
+chiavi delle fonti gratuite che vuoi accendere (Adzuna, Jooble, RapidAPI per
+JSearch), più una **API key** del provider LLM attivo (Gemini, free tier). L'elenco
+completo — cosa creare, dove, e perché — è nei **[Prerequisiti di
+ROADMAP.md](docs/ROADMAP.md#prerequisiti--cose-che-può-fare-solo-filippo)**: nomi di
+schede e bottoni sulle console di terzi cambiano più spesso di questo file, quindi
+lì si punta al posto giusto invece di ricopiare screenshot che invecchiano.
+
+Tutte le chiavi finiscono in `worker/.env` (mai committato) e nelle Environment
+Variables del progetto Vercel — template in `.env.example` e `.env.local.example`.
+
+</details>
+
+<details open>
+<summary><b>1. Worker</b> — Python 3.12 richiesto</summary>
 
 ```bash
 py -3.12 -m venv worker/.venv
 worker/.venv/Scripts/python -m pip install -e "worker[dev]"
 worker/.venv/Scripts/python -m playwright install chromium
-cp .env.example worker/.env      # poi compila le chiavi
-worker/.venv/Scripts/jobboard doctor
+cp .env.example worker/.env      # poi compila le chiavi del passo 0
+```
+
+</details>
+
+<details open>
+<summary><b>2. Schema del database</b> — una volta sola su un progetto Supabase nuovo</summary>
+
+```bash
+cd worker
+.venv/Scripts/alembic upgrade head    # crea tutte le tabelle, indici e vincoli
+.venv/Scripts/jobboard doctor         # verifica chiavi, connessione, Playwright
 ```
 
 `doctor` verifica ogni chiave, la connessione al database e Playwright, senza mai
-stampare il valore di un segreto.
+stampare il valore di un segreto — è il comando giusto per capire cosa manca prima
+di incolpare il passo successivo.
 
 </details>
 
 <details>
-<summary><b>Dashboard</b> — Node 20+</summary>
+<summary><b>3. Profilo</b> — il CV che ogni punteggio e ogni CV generato userà</summary>
+
+```bash
+worker/.venv/Scripts/jobboard profile import CV.pdf   # estrae e struttura con l'LLM
+# correggi worker/data/cv/master_profile.json a mano — è il passaggio che conta di più
+worker/.venv/Scripts/jobboard profile load --reviewed
+```
+
+</details>
+
+<details>
+<summary><b>4. Dashboard</b> — Node 20+, in locale</summary>
 
 ```bash
 cd web
 npm.cmd install
-cp .env.local.example .env.local  # poi compila le chiavi
+cp .env.local.example .env.local  # poi compila le chiavi del passo 0
 ```
 
 Poi, dalla radice del progetto:
@@ -176,6 +218,29 @@ Poi, dalla radice del progetto:
 rifiuta. `npm.cmd` non e' uno script PowerShell e passa senza dover abbassare una
 impostazione di sicurezza dell'intera macchina. Funzionano `.\web dev`, `.\web build`,
 `.\web lint`.
+
+</details>
+
+<details>
+<summary><b>5. Deploy su Vercel</b> — la dashboard pubblica</summary>
+
+Collega il repository al progetto Vercel del passo 0, replica le variabili di
+`.env.local.example` nelle sue Environment Variables e fai il primo deploy. Il
+redirect OAuth di Google Cloud Console va aggiornato con il dominio Vercel vero
+(`https://IL-TUO-DOMINIO/api/auth/callback/google`) prima che il login funzioni.
+
+</details>
+
+<details>
+<summary><b>6. Raccolta automatica e backup</b> — solo Windows, sul PC che fa da worker</summary>
+
+```bash
+.\setup-scheduler
+```
+
+Crea tre attività di Task Scheduler: il consumer della coda (ogni minuto), il
+trigger della raccolta giornaliera (07:00) e il backup CSV del database (03:00,
+Fase 10.3). Sicuro da rilanciare — sovrascrive, non duplica.
 
 </details>
 
@@ -205,7 +270,8 @@ jobboard gen-web-schema        # rigenera i tipi TypeScript
 │  │  ├─ cv/            template Jinja2 · render · fit a una pagina
 │  │  ├─ apply/         router tier · piano campi · selettori noti · euristica · browser
 │  │  ├─ notify/        digest email di fine run
-│  │  └─ tracking/      lettura IMAP · classificatore · promemoria di follow-up
+│  │  ├─ tracking/      lettura IMAP · classificatore · promemoria di follow-up
+│  │  └─ backup.py      esportazione CSV del database, con rotazione (Fase 10.3)
 │  └─ alembic/
 ├─ web/                 Next.js 16 → Vercel
 └─ docs/                architettura e roadmap
@@ -222,6 +288,19 @@ La conseguenza onesta è che si vede ciò che Google ha indicizzato, non l'inter
 
 Le job board degli ATS (Greenhouse, Lever, Ashby, Workable) restano la fonte migliore: dati
 puliti, e l'unica dove l'invio automatico è documentato e previsto.
+
+## Costi e backup
+
+`/costi` mostra token e costo stimato dei modelli LLM per scopo (punteggi, CV,
+classificazione risposte) e modello, sugli ultimi 30 giorni. Il costo resta **"n.d."
+finché non registri un prezzo** con `jb costs price set <modello> --input X --output
+Y` (letto dalla console del provider attivo) — nessun listino scritto a memoria nel
+codice, stessa regola della RAL non dichiarata in tabella.
+
+`jb backup run` esporta ogni tabella in un CSV, comprime in `data/backups/` e tiene
+solo gli ultimi `BACKUP_KEEP_COUNT` (default 14). Solo su disco locale, colonne
+binarie escluse — l'embedding di profilo e annunci si ricalcola da solo al prossimo
+`jb match`. `.\setup-scheduler` lo accoda ogni notte alle 03:00.
 
 ## Sicurezza
 

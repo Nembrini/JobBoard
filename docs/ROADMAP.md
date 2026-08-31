@@ -481,10 +481,53 @@ verifica che compaia il promemoria, sia in pagina sia via mail.
 
 ## Fase 10 — Rifinitura · 1 gg
 
-- [ ] **10.1** Ricalibrazione dei pesi su dati reali dopo circa due settimane d'uso
-- [ ] **10.2** Dashboard di consumo token e costo API
-- [ ] **10.3** Backup automatico del database ed export CSV
-- [ ] **10.4** README con setup da zero: worker, Vercel, Supabase
+- [ ] **10.1** Ricalibrazione dei pesi su dati reali dopo circa due settimane d'uso —
+      *non fattibile in questo ambiente: richiede due settimane di match veri
+      etichettati da Filippo, che `scripts/calibrate.py` (Fase 3.5) già sa consumare.
+      Resta l'unico punto aperto della fase.*
+- [x] **10.2** Dashboard di consumo token e costo API: tabella `llm_usage_log`, una
+      riga per invocazione **aggregata** (una run di matching, una generazione CV,
+      una lettura profilo, un giro di classificazione email — non una per singola
+      chiamata, che sono già gli aggregati che pipeline e gestori calcolano da soli),
+      scritta da `jobboard.store.llm_usage.record_llm_usage` nei quattro punti dove
+      un gestore chiama un LLM. Il prezzo è **"n.d." finché non lo si imposta**: nessun
+      listino scritto a memoria nel codice — i nomi dei modelli in `config.py` sono
+      successivi a questa fase, e un prezzo sbagliato sarebbe peggio di nessun prezzo,
+      stessa regola della RAL non dichiarata. Si registra dal worker con
+      `jb costs price set <modello> --input X --output Y`, letto dalla console del
+      provider attivo; si legge con `jb costs show` o dalla pagina **`/costi`**, che
+      mostra token e costo per scopo e modello sugli ultimi 30 giorni.
+- [x] **10.3** Backup automatico del database come CSV, con rotazione:
+      `jb backup run` legge ogni tabella (colonne binarie escluse — l'embedding di
+      profilo e annunci è ricalcolabile, non vale la pena portarselo dietro come byte
+      illeggibili), scrive un `.csv` per tabella, comprime in uno `.zip` dentro
+      `data/backups/` e tiene solo gli ultimi `BACKUP_KEEP_COUNT` (default 14, per
+      **conteggio** non per età — un PC spento per settimane non deve ritrovarsi a
+      zero backup). `setup-scheduler.cmd` aggiunge una terza attività, alle 03:00,
+      prima del trigger di raccolta delle 07:00. Solo su disco locale: nessun bucket
+      Supabase nuovo, che sarebbe un passo in più solo di Filippo.
+- [x] **10.4** README con setup da zero: worker, dashboard, migration, Vercel,
+      Task Scheduler — vedi la sezione **Setup** del README, che ora collega ogni
+      passo ai Prerequisiti qui sopra invece di darli per scontati.
+
+**Verifica fatta:** suite worker **446 test** (430 + 16 nuove, su
+`jobboard.store.llm_usage`, `jobboard.ai.pricing` e le parti di `jobboard.backup` che
+non toccano Postgres — stesso principio delle fasi precedenti), `ruff`, `ruff format`
+e `mypy --strict` puliti. Lato web: `tsc` (via `next build`), `eslint` e `next build`
+puliti con i tipi generati da `next typegen`, inclusa la rotta `/costi`.
+
+**Resta aperto:** **10.1** — la ricalibrazione ha bisogno di match veri giudicati da
+Filippo su almeno due settimane d'uso, che questo ambiente non ha. Il resto della
+fase è verificato fino alla lettura dal database compresa: nessuno dei tre punti
+seguenti è stato provato contro un Postgres vero — `record_llm_usage` non è mai
+stata chiamata da un `run_pipeline` reale, `jb backup run` non ha mai letto una
+tabella con righe vere, e la pagina `/costi` non ha mai mostrato un costo diverso da
+"n.d." perché nessun prezzo è stato ancora registrato. Prima verifica end-to-end
+suggerita: dopo una run reale, `jb costs show` deve elencare almeno una riga
+`match_scoring`; `jb costs price set gemini-3.5-flash-lite --input … --output …`
+(prezzo dalla console del provider) deve far comparire un costo in `/costi` invece
+di "n.d."; `jb backup run` deve produrre uno `.zip` in `data/backups/` apribile e
+con un CSV per ciascuna delle 14 tabelle.
 
 ---
 

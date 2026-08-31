@@ -20,6 +20,7 @@ from .enums import (
     AtsType,
     ContractType,
     EmailClass,
+    LlmUsagePurpose,
     MatchStatus,
     RunStatus,
     SalaryPeriod,
@@ -30,7 +31,7 @@ from .enums import (
 )
 from .job import Job, JobRequirements, JobSourceLink, Source
 from .match import Match
-from .ops import Run, Setting, Task, WorkerHeartbeat
+from .ops import LLMUsageLog, Run, Setting, Task, WorkerHeartbeat
 from .profile import CandidateProfile, Profile
 
 __all__ = [
@@ -49,6 +50,8 @@ __all__ = [
     "Job",
     "JobRequirements",
     "JobSourceLink",
+    "LLMUsageLog",
+    "LlmUsagePurpose",
     "Match",
     "MatchStatus",
     "Profile",

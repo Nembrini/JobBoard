@@ -193,3 +193,18 @@ class RunStatus(StrEnum):
     OK = "ok"
     PARTIAL = "partial"  # alcune fonti hanno fallito
     FAILED = "failed"
+
+
+class LlmUsagePurpose(StrEnum):
+    """A quale stadio appartiene una riga di ``llm_usage_log`` (Fase 10.2).
+
+    Uno per ogni punto della pipeline che chiama un LLM — vedi
+    ``jobboard.store.llm_usage``. Non e' l'elenco dei modelli (quello sta nella
+    colonna ``model``, libera): due scopi possono usare lo stesso modello, ed
+    e' proprio quello che la dashboard dei costi deve poter distinguere.
+    """
+
+    MATCH_SCORING = "match_scoring"  # rubrica pesata, Stadio 2
+    CV_STRUCTURE = "cv_structure"  # profilo -> MasterProfile, Fase 1/reparse_profile
+    CV_TAILOR = "cv_tailor"  # CV su misura, Fase 6
+    EMAIL_CLASSIFY = "email_classify"  # classificazione risposte recruiter, Fase 9
