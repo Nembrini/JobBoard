@@ -2,21 +2,27 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { RefreshCw } from "lucide-react";
+import { ListChecks, RefreshCw } from "lucide-react";
 
 import { TaskProgress } from "@/components/task-progress";
-import { avviaRaccolta } from "@/lib/task-actions";
+import { avviaRaccolta, avviaRivalutazione, type EsitoAvvio } from "@/lib/task-actions";
 import type { StatoTask } from "@/lib/tasks";
 
 /**
- * "Aggiorna adesso": chiede al PC di casa una raccolta e una valutazione.
+ * "Aggiorna adesso" e "Rivaluta tutto": chiedono al PC di casa una raccolta e
+ * una valutazione — la seconda anche di ciò che era già stato valutato.
  *
- * È il bottone che chiude l'anello dell'architettura split — la dashboard non
- * può eseguire la pipeline, ma può **commissionarla**. Per questo il testo
- * accanto non parla mai di attesa in secondi: dice se il worker è acceso, e
- * quando è spento dice che il lavoro parte da solo alla riaccensione. Un
- * bottone che a PC spento restituisse un errore starebbe rifiutando una
- * richiesta perfettamente valida.
+ * Sono il bottone (e il suo gemello) che chiudono l'anello dell'architettura
+ * split — la dashboard non può eseguire la pipeline, ma può
+ * **commissionarla**. Per questo il testo accanto non parla mai di attesa in
+ * secondi: dice se il worker è acceso, e quando è spento dice che il lavoro
+ * parte da solo alla riaccensione. Un bottone che a PC spento restituisse un
+ * errore starebbe rifiutando una richiesta perfettamente valida.
+ *
+ * I due bottoni condividono un solo stato di avanzamento — `run_pipeline` è
+ * un tipo di task solo, la dashboard ne mostra sempre l'ultimo — quindi si
+ * disabilitano a vicenda mentre uno dei due gira: due barre non ci stanno, e
+ * il worker li lavorerebbe comunque in fila, mai insieme.
  */
 export function RefreshBar({
   taskIniziale,
@@ -44,11 +50,11 @@ export function RefreshBar({
 
   const aperto = task?.status === "pending" || task?.status === "running";
 
-  function avvia() {
+  function accoda(azione: () => Promise<EsitoAvvio>) {
     setErrore(null);
     setNota(null);
     startTransition(async () => {
-      const esito = await avviaRaccolta();
+      const esito = await azione();
       if (!esito.ok) {
         setErrore(esito.errore);
         return;
@@ -78,6 +84,24 @@ export function RefreshBar({
     });
   }
 
+  function avvia() {
+    accoda(avviaRaccolta);
+  }
+
+  function rivaluta() {
+    // Conferma perché il costo è reale e non ovvio dal solo testo del bottone:
+    // rivaluta dalla rubrica LLM anche gli annunci già valutati, non solo i
+    // nuovi — una chiamata a testa, come una raccolta molto più grande del
+    // solito. Vale la pena solo dopo aver cambiato filtri o profilo.
+    const confermato = window.confirm(
+      "Rivaluta tutti gli annunci attivi con i filtri e il profilo attuali, non solo quelli nuovi. " +
+        "Serve dopo aver cambiato filtri o profilo, e costa una chiamata LLM per ogni annuncio già valutato — " +
+        "molte di più della solita raccolta. Procedere?",
+    );
+    if (!confermato) return;
+    accoda(avviaRivalutazione);
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -89,6 +113,17 @@ export function RefreshBar({
         >
           <RefreshCw className={`size-4 ${inCorso ? "animate-spin" : ""}`} />
           Aggiorna adesso
+        </button>
+
+        <button
+          type="button"
+          onClick={rivaluta}
+          disabled={inCorso || aperto}
+          title="Rivaluta anche gli annunci già valutati, non solo i nuovi — dopo un cambio di filtri o profilo."
+          className="border-input hover:bg-accent inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium disabled:opacity-50"
+        >
+          <ListChecks className="size-4" />
+          Rivaluta tutto
         </button>
 
         <p className="text-muted-foreground text-sm">

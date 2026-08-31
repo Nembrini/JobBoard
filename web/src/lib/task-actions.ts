@@ -44,6 +44,34 @@ export async function avviaRaccolta(): Promise<EsitoAvvio> {
 }
 
 /**
+ * Accoda una run completa **con rivalutazione**: raccolta, poi matching che
+ * ripassa dalla rubrica LLM anche gli annunci già arrivati allo Stadio 2, non
+ * solo i nuovi.
+ *
+ * È il bottone "Rivaluta tutto": senza, un cambio di filtri o di profilo non
+ * si vede sugli annunci già valutati finché non sono di nuovo raccolti da
+ * zero, perché `run_matching` salta di default chi ha già `reached_stage >= 2`
+ * (vedi `pipeline/filters.candidates` lato worker). Costa più della raccolta
+ * normale — una chiamata LLM per ogni annuncio già valutato, non solo per i
+ * nuovi — quindi resta un'azione a parte invece che il comportamento di
+ * default di "Aggiorna adesso".
+ */
+export async function avviaRivalutazione(): Promise<EsitoAvvio> {
+  if (!(await requireApiSession())) return { ok: false, errore: "non autorizzato" };
+
+  try {
+    const { id, giaInCoda } = await enqueueTask("run_pipeline", { rescore: true });
+    revalidatePath("/");
+    return { ok: true, id, giaInCoda };
+  } catch (errore) {
+    return {
+      ok: false,
+      errore: errore instanceof Error ? errore.message : "accodamento fallito",
+    };
+  }
+}
+
+/**
  * Accoda un controllo della posta (Fase 9): stesso `check_email` che gira da
  * solo una volta al giorno dentro `run_pipeline`, qui su richiesta — per non
  * aspettare la run notturna dopo aver acceso il tracciamento, o per ricontrollare
