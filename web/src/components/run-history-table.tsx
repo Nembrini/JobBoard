@@ -122,7 +122,14 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function dataOra(value: Date): string {
+/**
+ * `value` può arrivare `null` o, in teoria, un valore che il driver non è
+ * riuscito a decodificare come data: un formato che va in errore su un dato
+ * imprevisto non deve far cadere un'intera pagina di sola lettura — meglio
+ * un trattino di una schermata di errore.
+ */
+function dataOra(value: Date | null): string {
+  if (!value || Number.isNaN(value.getTime())) return "—";
   return new Intl.DateTimeFormat("it-IT", {
     day: "numeric",
     month: "short",
