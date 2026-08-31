@@ -669,6 +669,29 @@ lo script non si limita a stampare il vincitore: divide gli esempi in due metà,
 ciascuna e verifica che il vincitore dell'una regga sull'altra. Se le due metà non sono
 d'accordo, il messaggio lo dice e i pesi vanno lasciati stare.
 
+### 7.5 «Rivaluta tutto»: `--rescore` esposto in dashboard, non solo da terminale
+
+`filters.candidates()` esclude di default chi ha già `reached_stage >= 2` (vedi 7.3): un
+cambio di filtri, criteri o `MasterProfile` non tocca gli annunci già valutati finché
+qualcuno non rilancia `jb match --rescore` — che ripassa dalla rubrica **tutto** l'attivo,
+non solo l'arretrato. Prima di questa fase quel "qualcuno" doveva aprire un terminale sul
+PC del worker; il bottone "Aggiorna adesso" della dashboard accodava sempre un
+`run_pipeline` senza quell'opzione.
+
+"Rivaluta tutto" è lo stesso bottone con un payload in più: `handlers.run_pipeline` legge
+`ctx.payload["rescore"]` e lo inoltra a `run_matching()`, invece di un secondo tipo di
+task o un secondo gestore — `run_pipeline` resta uno, la deduplica di `enqueueTask` (per
+tipo *e* payload) distingue da sola una richiesta normale da una con rescore, e le due non
+si scavalcano: il worker le lavora in coda, mai insieme. Il bottone chiede conferma con un
+`window.confirm` prima di accodare, perché il costo è reale e non ovvio dal solo testo:
+una chiamata LLM per ogni annuncio già valutato, non solo per i nuovi.
+
+**Il digest non duplica in nessuno dei due casi.** `MatchReport.new_job_ids` — annunci
+senza una riga `match` prima del salvataggio corrente — è già la distinzione che serve
+(vedi Fase 8.3 in ROADMAP.md): un annuncio rivalutato da `--rescore` non è "nuovo" anche
+se il suo punteggio è cambiato, quindi non genera una seconda notifica per lo stesso
+annuncio.
+
 ## 8. Deduplicazione
 
 Chiave canonica: `normalize(company) + normalize(title) + normalize(city)`.
