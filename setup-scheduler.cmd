@@ -44,7 +44,10 @@ echo      invece di saltarlo del tutto.
 echo.
 echo Da qui in poi non serve piu' avviare nulla a mano: ne' la raccolta, ne' il
 echo backup, ne' il refresh della dashboard, che mostra dati freschi ogni volta
-echo che la apri.
+echo che la apri. "Aggiorna adesso" e "Rivaluta tutto" funzionano allo stesso modo:
+echo il click accoda, "JobBoard - worker" lo prende entro un minuto ed esegue da solo.
+echo Si puo' fermare senza toccare Task Scheduler dalla pagina Impostazioni della
+echo dashboard ("Avvio automatico").
 goto :fine
 
 :errore
