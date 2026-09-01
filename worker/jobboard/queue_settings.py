@@ -1,28 +1,30 @@
-"""L'interruttore dell'avvio automatico: se il tick di Task Scheduler può lavorare.
+"""Gli interruttori delle tre attività di Task Scheduler create da ``setup-scheduler.cmd``.
 
-``.\\setup-scheduler`` crea "JobBoard - worker", un'attività che lancia
-``jb work --once`` ogni minuto — è il meccanismo che rende automatica sia la
-raccolta giornaliera (Fase 8.1/8.2, "JobBoard - trigger giornaliero" alle
-07:00 accoda, "JobBoard - worker" esegue entro un minuto) sia i bottoni
-"Aggiorna adesso"/"Rivaluta tutto" della dashboard: la prossima tornata prende
-il task da sola, lo esegue, e il processo termina — nessun altro codice serve
-per "spegnerlo", ``--once`` esce da sé a fine lavoro.
+``.\\setup-scheduler`` crea tre attività — "JobBoard - worker" (``jb work
+--once`` ogni minuto), "JobBoard - trigger giornaliero" (``jb work trigger
+--scheduled`` alle 07:00) e "JobBoard - backup notturno" (``jb backup run
+--scheduled`` alle 03:00) — ed è il meccanismo che rende automatici sia i
+bottoni "Aggiorna adesso"/"Rivaluta tutto" della dashboard sia la raccolta e
+il backup di ogni giorno. Ognuna delle tre resta incondizionata una volta
+creata: ``schtasks`` non ha modo di leggere una riga di Postgres prima di
+agire, quindi ogni riga qui è solo l'interruttore per fermarla dalla pagina
+Impostazioni senza cancellare l'attività di Windows.
 
-**Acceso di default.** Chi ha già eseguito ``.\\setup-scheduler`` conta da
-tempo su quel tick per la raccolta di ogni mattina: un interruttore nato
-spento la fermerebbe in silenzio al primo deploy di questo file, che è
-l'opposto di prudente — è la sorpresa che il resto del codice evita apposta
-(vedi ``notify.settings`` per il caso contrario, dove spento è il default
-perché l'azione, una mail, non esisteva ancora). Qui esiste già: questa riga
-è solo l'interruttore per chi lo vuole fermare senza cancellare l'attività di
-Task Scheduler.
+**Acceso di default, per tutti e tre.** Chi ha già eseguito
+``.\\setup-scheduler`` conta da tempo su quei tick: un interruttore nato spento
+fermerebbe in silenzio, al primo deploy di questo file, un'automazione già in
+uso — la sorpresa che il resto del codice evita apposta (vedi ``notify.settings``
+per il caso contrario, dove spento è il default perché l'azione, una mail, non
+esisteva ancora).
 
-Stesso pattern di ``notify.settings.NotificationSettings`` e
-``tracking.settings.TrackingSettings``: una riga ``settings`` letta con un
-default al primo giro. La legge ``commands.worker``, prima di reclamare un
-task, non ``queue.claim`` — un ``jb work`` lanciato a mano (``serve()``, non
-``--once``) resta un'azione esplicita e non deve fermarsi per un interruttore
-pensato solo per il tick automatico.
+**Letto solo dall'invocazione automatica, mai da quella manuale.** ``--once``
+lo legge sempre (è *solo* il tick automatico); ``trigger`` e ``backup run``
+lo leggono **soltanto** con ``--scheduled``, il flag che ``setup-scheduler.cmd``
+passa nell'azione delle due attività giornaliere. Lanciati a mano in un
+terminale, senza quel flag, restano un'azione esplicita di Filippo e non si
+fermano per un interruttore pensato solo per il tick automatico — altrimenti
+"fai un backup prima di una migration rischiosa" potrebbe non succedere senza
+una ragione visibile a chi ha appena digitato il comando.
 """
 
 from __future__ import annotations
@@ -34,44 +36,83 @@ from sqlalchemy.orm import Session
 
 from .models import Setting
 
-#: Chiave della riga ``settings`` con la preferenza di avvio automatico.
+#: Chiavi delle tre righe ``settings``, una per attività di Task Scheduler.
 AUTO_WORKER_SETTING_KEY = "auto_worker"
+TRIGGER_SETTING_KEY = "scheduled_trigger"
+BACKUP_SETTING_KEY = "scheduled_backup"
+
+
+def _carica_interruttore(session: Session, key: str, description: str) -> bool:
+    """Legge un interruttore, creando la riga accesa al primo giro.
+
+    Motore comune ai tre interruttori del modulo: stessa forma di riga
+    (``{"enabled": bool}``), stesso default acceso, stessa tolleranza a un
+    valore malformato o a un campo mancante. Quello che li distingue è solo la
+    chiave e la frase che la pagina Impostazioni mostra accanto allo switch.
+    """
+    riga = session.get(Setting, key)
+    if riga is None:
+        session.add(Setting(key=key, value={"enabled": True}, description=description))
+        session.flush()
+        return True
+
+    valori: dict[str, Any] = dict(riga.value)
+    return bool(valori.get("enabled", True))
 
 
 @dataclass(frozen=True)
 class AutoWorkerSettings:
     """Se il tick automatico di Task Scheduler (``jb work --once``) può reclamare un task."""
 
-    #: Acceso di default: e' il comportamento che l'attivita' di Task Scheduler
-    #: gia' ha appena creata, non una funzione nuova che va scelta per esistere.
     enabled: bool = True
-
-    def to_json(self) -> dict[str, Any]:
-        return {"enabled": self.enabled}
 
 
 def load_auto_worker_settings(session: Session) -> AutoWorkerSettings:
-    """Legge la preferenza, creando la riga accesa al primo giro.
-
-    Stesso ordine di ``load_notification_settings``: quello che c'è in
-    ``settings`` vince perché è ciò che Filippo ha scelto dalla dashboard.
-    """
-    riga = session.get(Setting, AUTO_WORKER_SETTING_KEY)
-    if riga is None:
-        preferenze = AutoWorkerSettings(enabled=True)
-        session.add(
-            Setting(
-                key=AUTO_WORKER_SETTING_KEY,
-                value=preferenze.to_json(),
-                description=(
-                    "Avvio automatico: se il tick di Task Scheduler ('JobBoard - worker', "
-                    "ogni minuto) può reclamare un task dalla coda, modificabile dalla "
-                    "pagina Impostazioni"
-                ),
-            )
+    """Legge la preferenza di "JobBoard - worker", creando la riga accesa al primo giro."""
+    return AutoWorkerSettings(
+        enabled=_carica_interruttore(
+            session,
+            AUTO_WORKER_SETTING_KEY,
+            "Avvio automatico: se il tick di Task Scheduler ('JobBoard - worker', "
+            "ogni minuto) può reclamare un task dalla coda, modificabile dalla "
+            "pagina Impostazioni",
         )
-        session.flush()
-        return preferenze
+    )
 
-    valori: dict[str, Any] = dict(riga.value)
-    return AutoWorkerSettings(enabled=bool(valori.get("enabled", True)))
+
+@dataclass(frozen=True)
+class TriggerSettings:
+    """Se il tick giornaliero (``jb work trigger --scheduled``) accoda la raccolta."""
+
+    enabled: bool = True
+
+
+def load_trigger_settings(session: Session) -> TriggerSettings:
+    """Legge la preferenza di "JobBoard - trigger giornaliero", creando la riga al primo giro."""
+    return TriggerSettings(
+        enabled=_carica_interruttore(
+            session,
+            TRIGGER_SETTING_KEY,
+            "Raccolta giornaliera: se 'JobBoard - trigger giornaliero' (07:00) accoda "
+            "da solo un run_pipeline, modificabile dalla pagina Impostazioni",
+        )
+    )
+
+
+@dataclass(frozen=True)
+class BackupSettings:
+    """Se il tick notturno (``jb backup run --scheduled``) esegue davvero il backup."""
+
+    enabled: bool = True
+
+
+def load_backup_settings(session: Session) -> BackupSettings:
+    """Legge la preferenza di "JobBoard - backup notturno", creando la riga al primo giro."""
+    return BackupSettings(
+        enabled=_carica_interruttore(
+            session,
+            BACKUP_SETTING_KEY,
+            "Backup notturno: se 'JobBoard - backup notturno' (03:00) esporta davvero "
+            "il database, modificabile dalla pagina Impostazioni",
+        )
+    )

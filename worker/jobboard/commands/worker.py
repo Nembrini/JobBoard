@@ -12,7 +12,7 @@ from ..config import get_settings
 from ..db import session_scope
 from ..models.enums import TaskType
 from ..queue import enqueue_task, heartbeat, run_once, serve
-from ..queue_settings import load_auto_worker_settings
+from ..queue_settings import load_auto_worker_settings, load_trigger_settings
 
 console = Console()
 work_app = typer.Typer(name="work", help="Consumer della coda: esegue i task accodati dalla UI.")
@@ -81,7 +81,15 @@ def work(
 
 
 @work_app.command("trigger")
-def trigger() -> None:
+def trigger(
+    scheduled: Annotated[
+        bool,
+        typer.Option(
+            "--scheduled",
+            help="Rispetta l'interruttore 'Raccolta giornaliera' della pagina Impostazioni.",
+        ),
+    ] = False,
+) -> None:
     """Accoda una run completa (raccolta + matching), senza eseguirla qui.
 
     Pensato per un'attivita' giornaliera di Task Scheduler: fa la stessa cosa
@@ -91,7 +99,20 @@ def trigger() -> None:
     manuale. Se un run e' gia' in coda o in corso non ne accoda un secondo: due
     trigger vicini (un catch-up dopo il PC spento, o un click manuale lo stesso
     giorno) non devono raddoppiare la raccolta.
+
+    ``--scheduled`` e' il flag che ``setup-scheduler.cmd`` passa nell'azione di
+    "JobBoard - trigger giornaliero": solo con quel flag il comando legge
+    l'interruttore di Impostazioni e puo' non fare nulla. Lanciato a mano, senza
+    il flag, resta un'azione esplicita — un catch-up voluto non deve dipendere
+    da un interruttore pensato per il solo tick automatico.
     """
+    if scheduled:
+        with session_scope() as session:
+            automatico = load_trigger_settings(session).enabled
+        if not automatico:
+            console.print("[dim]raccolta giornaliera spenta nelle Impostazioni[/]")
+            return
+
     with session_scope() as session:
         _, gia_in_coda = enqueue_task(session, TaskType.RUN_PIPELINE)
 

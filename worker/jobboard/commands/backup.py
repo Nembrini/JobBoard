@@ -23,18 +23,42 @@ def run_backup_command(
         int | None,
         typer.Option("--keep", help="Quanti archivi tenere. Default: BACKUP_KEEP_COUNT."),
     ] = None,
+    scheduled: Annotated[
+        bool,
+        typer.Option(
+            "--scheduled",
+            help="Rispetta l'interruttore 'Backup notturno' della pagina Impostazioni.",
+        ),
+    ] = False,
 ) -> None:
     """Esporta ogni tabella in un CSV, comprime, ruota i backup piu' vecchi.
 
     E' lo stesso comando che ``setup-scheduler`` accoda ogni notte: eseguirlo a
     mano serve solo per una prova, o per un backup fuori programma prima di un
     cambio rischioso (una migration, una modifica ai criteri di matching).
+
+    ``--scheduled`` e' il flag che ``setup-scheduler.cmd`` passa nell'azione di
+    "JobBoard - backup notturno": solo con quel flag il comando legge
+    l'interruttore di Impostazioni e puo' non fare nulla. Lanciato a mano, senza
+    il flag, il backup parte sempre — "fallo prima di questa migration" non deve
+    dipendere da un interruttore pensato per il solo tick automatico.
     """
-    from ..backup import run_backup
     from ..config import get_settings
     from ..db import session_scope
 
     settings = get_settings()
+
+    if scheduled:
+        from ..queue_settings import load_backup_settings
+
+        with session_scope() as session:
+            automatico = load_backup_settings(session).enabled
+        if not automatico:
+            console.print("[dim]backup notturno spento nelle Impostazioni[/]")
+            return
+
+    from ..backup import run_backup
+
     quanti = keep if keep is not None else settings.backup_keep_count
 
     with session_scope() as session:

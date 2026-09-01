@@ -1,10 +1,10 @@
-import { AutoWorkerForm } from "@/components/settings/auto-worker-form";
 import { NotificationsForm } from "@/components/settings/notifications-form";
+import { SchedulerTasksForm } from "@/components/settings/scheduler-tasks-form";
 import { TrackingForm } from "@/components/settings/tracking-form";
 import { SiteHeader } from "@/components/site-header";
-import { getAutoWorkerSettings } from "@/lib/auto-worker-settings";
 import { requireSession } from "@/lib/dal";
 import { getNotificationSettings } from "@/lib/notifications";
+import { getSchedulerTasksSettings } from "@/lib/scheduler-settings";
 import { getTrackingSettings } from "@/lib/tracking-settings";
 
 export const metadata = { title: "Impostazioni" };
@@ -19,8 +19,8 @@ export const metadata = { title: "Impostazioni" };
  */
 export default async function ImpostazioniPage() {
   await requireSession();
-  const [avvioAutomatico, notifiche, tracciamento] = await Promise.all([
-    getAutoWorkerSettings(),
+  const [attivitaPianificate, notifiche, tracciamento] = await Promise.all([
+    getSchedulerTasksSettings(),
     getNotificationSettings(),
     getTrackingSettings(),
   ]);
@@ -37,7 +37,7 @@ export default async function ImpostazioniPage() {
           </p>
         </div>
 
-        <AutoWorkerForm iniziale={avvioAutomatico} />
+        <SchedulerTasksForm iniziale={attivitaPianificate} />
         <NotificationsForm iniziale={notifiche} />
         <TrackingForm iniziale={tracciamento} />
       </main>

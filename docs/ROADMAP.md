@@ -673,6 +673,58 @@ worker: **493 test**, `mypy --strict` e `ruff check`/`format` puliti su tutto `j
 
 ---
 
+## Fase 13 — Attività pianificate senza finestra e interruttori dedicati
+
+Due richieste dirette di Filippo dopo la Fase 12, non un'altra causa dello stesso guasto:
+la prima è un difetto notato a occhio ("ogni minuto compare la schermata cmd"), la seconda
+un'estensione esplicita dell'interruttore unico della Fase 12.2 a tutte e tre le attività.
+
+- [x] **13.1** **Nessuna finestra visibile.** Le tre attività lanciano `jobboard.exe`
+      tramite un nuovo `run-hidden.vbs` alla radice (`WshShell.Run(comando, 0, True)`)
+      invece di invocarlo direttamente: né `schtasks` né Task Scheduler hanno un'opzione
+      per farlo — la spunta "Nascosta" nelle Proprietà nasconde solo la voce nell'elenco,
+      non la finestra del processo, un equivoco facile perché il nome suggerisce il
+      contrario. Le attività restano "solo se l'utente ha eseguito l'accesso": Session 0
+      (l'alternativa "sia connesso o no") non ha un desktop su cui Playwright potrebbe
+      mostrare davvero un browser a Filippo per "jb apply". Vedi ARCHITECTURE.md, sezione
+      "Le tre attività non aprono più una finestra sullo schermo".
+- [x] **13.2** **Un interruttore per attività, non uno solo.** `jobboard.queue_settings`
+      guadagna `TriggerSettings`/`scheduled_trigger` e `BackupSettings`/`scheduled_backup`,
+      stesso pattern di `AutoWorkerSettings`/`auto_worker` (Fase 12.2) — accesi di default,
+      una riga `settings` ciascuno. `jb work trigger` e `jb backup run` guadagnano un flag
+      `--scheduled`, che `setup-scheduler.cmd` passa nelle loro attività: solo con quel
+      flag leggono l'interruttore, così un'invocazione manuale (un backup prima di una
+      migration, un trigger per forzare una raccolta) resta un'azione esplicita che non
+      dipende da un interruttore pensato per il tick automatico — stesso principio già
+      valido per `--once`/`serve()`. Lato web, `auto-worker-settings.ts`/
+      `auto-worker-form.tsx` diventano `scheduler-settings.ts`/`scheduler-tasks-form.tsx`:
+      una sezione "Attività pianificate" con tre switch e un solo "Salva", non tre form
+      separati. `jobboard doctor` (Fase 12) controlla ora tutti e tre gli interruttori, non
+      solo quello del worker. Vedi ARCHITECTURE.md, sezione "Ognuna delle tre attività ha
+      un interruttore in `settings`".
+
+**Verifica fatta:** suite worker **493 test** (il conteggio è condiviso con la Fase 12: i
+dieci nuovi di questa fase sono parametrizzati sui tre interruttori, stesso stile
+`_FakeSession`), `mypy --strict` e `ruff check` puliti. Lato web: `tsc --noEmit` (dopo
+`next typegen`, che ha risolto due errori preesistenti e indipendenti sui tipi di rotta di
+`/candidature` e `/cronologia`), `eslint` e `next build` puliti, inclusa la sezione nuova.
+
+**Verificato end-to-end su Windows e Postgres veri, non simulati** — quello che alla Fase
+12 mancava per la parte di Task Scheduler: `schtasks /create` con la riga d'azione avvolta
+da `run-hidden.vbs`, poi `schtasks /run` forzato a mano sulle tre attività vere, battito e
+riga `backup` verificati aggiornarsi, **nessun processo `wscript`/`jobboard` rimasto
+visibile o in esecuzione** al termine. `jb work trigger --scheduled` e
+`jb backup run --scheduled` provati sia con l'interruttore spento (non fanno nulla, un solo
+messaggio) sia acceso (accodano/eseguono davvero — il backup di prova è il primo mai
+scritto in `data/backups/`, l'attività non era mai stata eseguita prima d'ora); lo stesso
+comando senza `--scheduled` accoda/esegue comunque, confermando che l'uso manuale non
+dipende dall'interruttore. Il primo tentativo di `setup-scheduler.cmd` è fallito con un
+errore di `schtasks` che non c'entrava nulla (`"M" non riconosciuto...`): causa un trattino
+lungo Unicode in un commento — i file `.cmd` di questo repository restano ASCII per
+questo, non per stile.
+
+---
+
 ## Verifica end-to-end
 
 Al termine della Fase 8, il test completo si fa **dal telefono, con il PC acceso in
