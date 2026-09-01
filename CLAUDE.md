@@ -22,7 +22,7 @@ dell'intera macchina.
 ```bash
 .\jb <comando>      # CLI del worker (worker\.venv\Scripts\jobboard.exe)
 .\web dev|build|lint
-.\setup-scheduler   # crea le due attività di Task Scheduler per la raccolta automatica (una tantum)
+.\setup-scheduler   # crea le tre attività di Task Scheduler (worker, trigger, backup — una tantum)
 ```
 
 ### Worker
@@ -43,7 +43,7 @@ fixture.
 ### Pipeline, a mano
 
 ```bash
-.\jb doctor                       # configurazione, database, embedding, Playwright
+.\jb doctor                       # configurazione, database, embedding, Playwright, Task Scheduler
 .\jb ingest --dry-run             # raccoglie e normalizza senza scrivere
 .\jb ingest --commit
 .\jb match --commit               # imbuto a 3 stadi; --rescore rivaluta tutto

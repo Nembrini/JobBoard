@@ -181,16 +181,40 @@ saltata" compreso — quella parte la dà gratis l'opzione nativa di Task Schedu
 codice. `apscheduler` resta come dipendenza dichiarata in `pyproject.toml`, non rimossa,
 ma resta anche inutilizzata: la Fase 8.3 (sotto) non ne ha avuto bisogno.
 
-**Il codice pronto non basta se le due attività restano da creare a mano.** Fra Fase
-8.1/8.2 e il primo uso vero è passato del tempo in cui `jb work` non ha mai girato sul PC
-di Filippo — non un difetto del meccanismo, solo due schede di Task Scheduler compilate a
-mano che si rimandano. `setup-scheduler.cmd` alla radice (stesso stile di `jb.cmd`/`web.cmd`:
-niente PowerShell, `%~dp0` per il percorso assoluto, sicuro da rilanciare) crea entrambe le
-attività con `schtasks /create /f`. Resta manuale un solo passo — la spunta "esegui appena
-possibile se un avvio pianificato viene ignorato" — perché `schtasks.exe` da riga di
-comando non la espone: servirebbe un XML di Task Scheduler scritto a mano e non
-verificabile da un sandbox Linux, e un passo in più dichiarato onestamente batte uno
-script che potrebbe fallire in modo poco chiaro sulla macchina di chi lo esegue.
+**Il codice pronto non basta se le attività restano da creare a mano.** Fra Fase 8.1/8.2 e
+il primo uso vero è passato del tempo in cui `jb work` non ha mai girato sul PC di
+Filippo — non un difetto del meccanismo, solo le schede di Task Scheduler compilate a mano
+che si rimandano. `setup-scheduler.cmd` alla radice (stesso stile di `jb.cmd`/`web.cmd`:
+niente script PowerShell, `%~dp0` per il percorso assoluto, sicuro da rilanciare) crea tre
+attività con `schtasks /create /f` — il consumer (`jb work --once` ogni minuto), il trigger
+giornaliero (07:00) e, da Fase 10.3, il backup notturno (03:00).
+
+**Un'attività disabilitata non produce un errore da nessuna parte — è già successo per
+davvero.** `JobBoard - worker` è rimasto disabilitato per un giorno e mezzo: non per un
+guasto che qualcosa avesse registrato (il log Operational di Task Scheduler è spento di
+default e non conserva nulla), semplicemente disattivato e mai riacceso. In quel tempo la
+coda ha continuato ad accettare normalmente i task dei bottoni della dashboard — nessun
+errore all'accodamento, nessuna riga rossa — ma nessun processo li raccoglieva più.
+L'unico sintomo in dashboard era il pallino offline, e "il PC è spento" e "l'attività è
+disabilitata" ci arrivano identici mentre solo il secondo richiede di aprire Task
+Scheduler invece di aspettare che qualcuno lo riaccenda. Da qui `jobboard doctor`, che ora
+controlla anche questo — stesso principio già applicato a Playwright e all'embedding: un
+prerequisito silenzioso deve emergere da un comando diagnostico, non da una pipeline
+notturna che fallisce senza lasciare testimoni.
+
+**La spunta "esegui appena possibile se un avvio pianificato viene ignorato" non è più un
+passo manuale.** La versione precedente di questa nota diceva che andava spuntata a mano
+perché `schtasks.exe` da riga di comando non la espone e automatizzarla avrebbe richiesto
+un XML di Task Scheduler scritto a mano, non verificabile da un sandbox Linux — vero per
+chi scriveva senza il PC vero davanti, ma il modulo PowerShell `ScheduledTasks`
+(`Get-ScheduledTask` / `Set-ScheduledTask -Settings`) la espone come proprietà
+(`StartWhenAvailable`) senza toccare XML, verificato rileggendola dopo la scrittura invece
+di fidarsi del solo codice di uscita. `setup-scheduler.cmd` la imposta ora da sé su trigger
+giornaliero e backup notturno con una chiamata a `powershell -Command` inline: non è uno
+script `.ps1`, quindi la execution policy `AllSigned` non c'entra — la stessa distinzione
+per cui `jb.cmd`/`web.cmd` restano `.cmd` e non `.ps1`. Non serve su `JobBoard - worker`:
+una ripetizione al minuto non ha un "avvio mancato" da recuperare, riparte da sola al
+minuto buono successivo.
 
 ### Il digest email è un effetto di fine run, non un secondo scheduler (Fase 8.3/8.4)
 

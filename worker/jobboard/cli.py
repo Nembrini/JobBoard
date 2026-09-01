@@ -8,6 +8,7 @@ il consumer lo raccoglie.
 from __future__ import annotations
 
 import platform
+import subprocess
 import sys
 from typing import Annotated
 
@@ -156,6 +157,7 @@ def doctor(
 
     _check_embedding()
     _check_playwright()
+    _check_scheduler()
 
 
 def _stato_segreto(valore: str) -> tuple[str, str]:
@@ -238,6 +240,101 @@ def _check_playwright() -> None:
             f"[red]Playwright non pronto[/] — {type(exc).__name__}. "
             "Esegui: [bold]python -m playwright install chromium[/]"
         )
+
+
+#: Le tre attivita' che ``setup-scheduler.cmd`` crea, con il motivo per cui ciascuna
+#: conta: se manca o e' disabilitata non e' un problema di configurazione del
+#: worker, e' un problema di chi la deve raccogliere.
+_ATTIVITA_SCHEDULATE = (
+    (
+        "JobBoard - worker",
+        "consumer della coda ogni minuto — senza, i bottoni della dashboard non fanno nulla",
+    ),
+    ("JobBoard - trigger giornaliero", "raccolta automatica alle 07:00"),
+    ("JobBoard - backup notturno", "backup CSV alle 03:00"),
+)
+
+#: ``TaskState`` di .NET (``Get-ScheduledTask``), stabile a prescindere dalla lingua
+#: di Windows. Il testo di ``schtasks`` invece e' localizzato — su
+#: un'installazione italiana stampa "Disabilitata", non "Disabled" — quindi non e'
+#: quello da cui leggere uno stato in un programma.
+_STATI_TASK_SCHEDULER = {
+    "0": "Unknown",
+    "1": "Disabled",
+    "2": "Queued",
+    "3": "Ready",
+    "4": "Running",
+}
+
+
+def _stato_attivita_pianificata(nome: str) -> str | None:
+    """Lo stato di un'attivita' di Task Scheduler, o ``None`` se non si riesce a saperlo.
+
+    ``None`` copre sia PowerShell irraggiungibile sia un timeout: in entrambi i
+    casi non c'e' niente da dire con sicurezza, e ``doctor`` deve poterlo
+    segnalare come "non verificato" invece di spacciarlo per "assente".
+    """
+    try:
+        risultato = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"(Get-ScheduledTask -TaskName '{nome}' "
+                "-ErrorAction SilentlyContinue).State.value__",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    valore = risultato.stdout.strip()
+    if not valore:
+        return "Missing"
+    return _STATI_TASK_SCHEDULER.get(valore, "Unknown")
+
+
+def _check_scheduler() -> None:
+    """Verifica che le attivita' create da ``setup-scheduler.cmd`` esistano e siano attive.
+
+    E' il controllo che sarebbe servito il giorno in cui "JobBoard - worker" e'
+    rimasto disabilitato per un giorno e mezzo senza che nessun errore lo dicesse:
+    la dashboard accodava normalmente i task dei suoi bottoni, ma nessun processo
+    li raccoglieva piu', e in dashboard l'unico sintomo era un pallino offline
+    facile da leggere come "il PC e' spento" invece che "l'attivita' e' spenta". Un
+    prerequisito silenzioso come Playwright o l'embedding, controllato allo stesso
+    modo — e altrettanto inutile da controllare a meta' della pipeline notturna.
+
+    Solo Windows: Task Scheduler non esiste altrove, e le attivita' le crea solo
+    ``setup-scheduler.cmd``, anche lui Windows-only.
+    """
+    if platform.system() != "Windows":
+        return
+
+    for nome, ruolo in _ATTIVITA_SCHEDULATE:
+        stato = _stato_attivita_pianificata(nome)
+        if stato is None:
+            console.print(
+                f"[yellow]Impossibile verificare l'attivita' di Task Scheduler[/] {nome!r} "
+                "— controllala a mano in Utilita' di pianificazione."
+            )
+        elif stato == "Missing":
+            console.print(
+                f"[red]Attivita' di Task Scheduler assente[/] — {nome!r} ({ruolo}). "
+                "Esegui: [bold].\\setup-scheduler[/]"
+            )
+        elif stato == "Disabled":
+            console.print(
+                f"[red]Attivita' di Task Scheduler disabilitata[/] — {nome!r} ({ruolo}). "
+                "Riabilitala in Utilita' di pianificazione, o con: "
+                f'schtasks /change /tn "{nome}" /enable'
+            )
+        else:
+            console.print(f"[green]Attivita' di Task Scheduler attiva[/] — {nome!r} ({ruolo})")
 
 
 @app.command(name="gen-web-schema")

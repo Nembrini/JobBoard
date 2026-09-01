@@ -34,17 +34,21 @@ schtasks /create /f /tn "JobBoard - backup notturno" ^
 if errorlevel 1 goto :errore
 
 echo.
-echo Fatto. Resta un solo passo, che schtasks non espone da riga di comando:
-echo   1. Apri Task Scheduler (cerca "Utilita' di pianificazione" nel menu Start)
-echo   2. Trova "JobBoard - trigger giornaliero" (e, se vuoi, anche "JobBoard -
-echo      backup notturno") e apri le Proprieta' di ciascuna
-echo   3. Scheda Impostazioni: spunta "Esegui l'attivita' il prima possibile se
-echo      un avvio pianificato viene ignorato" - recupera un giorno a PC spento
-echo      invece di saltarlo del tutto.
+echo Imposto il recupero delle due attivita' giornaliere se il PC era spento
+echo all'ora prevista ("esegui appena possibile se un avvio pianificato viene
+echo ignorato")...
+REM schtasks.exe non espone questa spunta da riga di comando, ma il modulo
+REM PowerShell ScheduledTasks si': niente XML scritto a mano, e verificato che
+REM la proprieta' regge davvero (Get-ScheduledTask la rilegge True dopo la
+REM scrittura), non solo che il comando sia uscito senza errori.
+powershell -NoProfile -NonInteractive -Command "foreach ($n in 'JobBoard - trigger giornaliero','JobBoard - backup notturno') { $t = Get-ScheduledTask -TaskName $n; $s = $t.Settings; $s.StartWhenAvailable = $true; Set-ScheduledTask -TaskName $n -Settings $s | Out-Null }"
+if errorlevel 1 goto :errore
+
 echo.
-echo Da qui in poi non serve piu' avviare nulla a mano: ne' la raccolta, ne' il
-echo backup, ne' il refresh della dashboard, che mostra dati freschi ogni volta
-echo che la apri.
+echo Fatto. Da qui in poi non serve piu' avviare nulla a mano: ne' la raccolta,
+echo ne' il backup, ne' il refresh della dashboard, che mostra dati freschi ogni
+echo volta che la apri. "jobboard doctor" controlla anche queste tre attivita',
+echo se un giorno una di loro risultasse di nuovo disabilitata.
 goto :fine
 
 :errore
