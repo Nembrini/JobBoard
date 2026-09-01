@@ -630,6 +630,23 @@ tabella; poi spegnere "Avvio automatico" in Impostazioni, premere "Aggiorna ades
 verificare che il task resti `pending` finché non si rilancia `jb work` a mano o non si
 riaccende l'interruttore.
 
+**Aggiornamento — verificato su Postgres e Windows veri, non simulati:** il tick di
+"JobBoard - worker" con l'interruttore spento è esattamente quello osservato, non solo
+previsto dal codice — la riga `settings` per `"auto_worker"` è stata trovata **spenta per
+davvero** sul PC di Filippo (`enabled: false`), verosimilmente residuo della verifica
+suggerita qui sopra fatta a metà: spenta per il test, mai riaccesa. Nello stesso giro un
+`run_pipeline` e due `generate_cv` erano fermi da un giorno e mezzo per una causa distinta
+e precedente — "JobBoard - worker" risultava **disabilitato in Task Scheduler**, non solo
+fermato dall'interruttore — scoperta confrontando `worker_heartbeat.last_seen_at` con lo
+stato reale dell'attività. Corrette entrambe le cause (interruttore riacceso, attività
+riabilitata): i tre task sospesi sono stati ripresi ed eseguiti da `jb work` senza alcun
+comando manuale, `run_pipeline` incluso — riepilogo reale: 1212 annunci raccolti da 10
+fonti, 131 nuovi, 40 valutati, 7 sopra soglia. `jb doctor` controlla ora entrambe le cause
+(attività di Task Scheduler e interruttore `auto_worker`), e non è più vero che
+un'attività disabilitata "non produce un errore da nessuna parte" — lo produce in
+`jobboard doctor`. Resta da osservare per davvero solo la sparizione di un annuncio da
+`/annunci` dopo "Rivaluta tutto" con un cambio di filtro.
+
 ---
 
 ## Verifica end-to-end

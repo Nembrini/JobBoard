@@ -154,6 +154,7 @@ def doctor(
 
     if check_db:
         _check_database()
+        _check_auto_worker()
 
     _check_embedding()
     _check_playwright()
@@ -197,6 +198,38 @@ def _check_database() -> None:
         console.print(f"[green]Database raggiungibile[/] — {str(server).split(',')[0]}")
     except Exception as exc:  # pragma: no cover - dipende dall'ambiente
         console.print(f"[red]Database non raggiungibile[/] — {type(exc).__name__}: {exc}")
+
+
+def _check_auto_worker() -> None:
+    """Verifica l'interruttore ``auto_worker`` scritto dalla pagina Impostazioni.
+
+    Spento, ``jb work --once`` (il tick di Task Scheduler) non reclama nessun
+    task e non scrive nemmeno il battito — lo stesso effetto pratico di
+    un'attività disabilitata in Task Scheduler, ma acceso da un click sulla
+    pagina Impostazioni invece che da Windows, e altrettanto silenzioso da
+    qui: nessun errore, solo una coda che non si svuota più.
+    """
+    from .db import session_scope
+    from .queue_settings import load_auto_worker_settings
+
+    try:
+        with session_scope() as session:
+            preferenza = load_auto_worker_settings(session)
+    except Exception as exc:  # pragma: no cover - dipende dall'ambiente
+        console.print(
+            f"[yellow]Impossibile leggere l'avvio automatico[/] — {type(exc).__name__}: {exc}"
+        )
+        return
+
+    if preferenza.enabled:
+        console.print(
+            "[green]Avvio automatico acceso[/] — 'JobBoard - worker' può reclamare i task"
+        )
+    else:
+        console.print(
+            "[red]Avvio automatico spento[/] nella pagina Impostazioni — 'JobBoard - worker' "
+            "gira ogni minuto ma non reclama nulla. Riaccendilo in Impostazioni > Avvio automatico."
+        )
 
 
 def _check_embedding() -> None:
