@@ -53,7 +53,7 @@ export function NotificationsForm({ iniziale }: { iniziale: NotificationSettings
           }`}
         >
           <span
-            className={`absolute top-1 size-5 rounded-full bg-white shadow transition-transform ${
+            className={`absolute top-1 left-0 size-5 rounded-full bg-white shadow transition-transform ${
               valori.enabled ? "translate-x-6" : "translate-x-1"
             }`}
           />

@@ -130,7 +130,7 @@ function Interruttore({
         }`}
       >
         <span
-          className={`absolute top-1 size-5 rounded-full bg-white shadow transition-transform ${
+          className={`absolute top-1 left-0 size-5 rounded-full bg-white shadow transition-transform ${
             acceso ? "translate-x-6" : "translate-x-1"
           }`}
         />
