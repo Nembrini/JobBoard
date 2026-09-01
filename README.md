@@ -136,6 +136,7 @@ browser che devi guardare mentre compila un form — che non può girare su un s
 | 9 · Tracking | 🔸 | Stati, lettura IMAP, classificazione risposte, promemoria, metriche — non ancora provato con un account Gmail e un LLM veri |
 | 10 · Rifinitura | 🔸 | Dashboard costi (`/costi`), backup CSV automatico — manca solo la ricalibrazione dei pesi, che serve due settimane d'uso reale |
 | 11 · Città e informazioni applicante | 🔸 | Filtro sulla città allo Stadio 0, pool libero di informazioni applicante (`jb info`, sezione CV) che la Fase 6 può citare in aggiunta al profilo — non ancora provato contro un Postgres e un LLM veri |
+| 12 · Rivalutazione e avvio automatico | 🔸 | Bottone "Rivaluta tutto" (`--rescore` dalla dashboard), avvio/arresto automatico del worker per entrambi i bottoni con interruttore in Impostazioni — non ancora provato contro un Postgres, un worker o un Task Scheduler veri |
 
 Dettaglio completo con sottofasi e criteri di verifica in **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 

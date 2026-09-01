@@ -216,6 +216,35 @@ per cui `jb.cmd`/`web.cmd` restano `.cmd` e non `.ps1`. Non serve su `JobBoard -
 una ripetizione al minuto non ha un "avvio mancato" da recuperare, riparte da sola al
 minuto buono successivo.
 
+### L'avvio automatico è un interruttore in `settings`, non un secondo Task Scheduler
+
+"JobBoard - worker" (`jb work --once` ogni minuto) parte incondizionato appena
+`.\setup-scheduler` l'ha creato, e resta così finché qualcuno non lo cancella da Windows —
+`schtasks` non ha modo di leggere una riga di Postgres prima di decidere se agire, lo stesso
+vincolo di "L'orario è solo la preferenza registrata" qui sopra. Quando i bottoni "Aggiorna
+adesso" e "Rivaluta tutto" della dashboard hanno avuto bisogno di un modo per farsi eseguire
+da soli senza che Filippo aprisse un terminale, il meccanismo esisteva già — è lo stesso tick
+di sempre, non uno nuovo — mancava solo un modo per fermarlo dalla dashboard senza cancellare
+l'attività: `jobboard.queue_settings`, chiave `"auto_worker"`, stesso pattern di
+`notify.settings` e `tracking.settings`, letta da `commands.worker` prima di reclamare un
+task quando invocato con `--once`.
+
+**Acceso di default, l'unica delle tre a esserlo.** Notifiche e tracciamento partono spenti
+perché accendono un'azione nuova che prima non esisteva — una mail, una lettura IMAP — e un
+default acceso sarebbe stata una sorpresa. Qui è l'opposto: chi ha già eseguito
+`.\setup-scheduler` conta da tempo su quel tick per la raccolta di ogni mattina, e questo file
+non introduce niente che prima non ci fosse — nasce solo per poterlo fermare. Un default
+spento avrebbe interrotto in silenzio, al primo deploy, un'automazione già in uso.
+
+**Il controllo sta in `commands.worker`, non in `queue.claim`.** `claim()` resta quello che
+serve sia a `--once` sia a `serve()` — la lettura della coda con `FOR UPDATE SKIP LOCKED`,
+niente di più — perché un `jb work` lanciato a mano in un terminale è un'azione esplicita di
+Filippo e non deve fermarsi per un interruttore pensato per il tick automatico. Con
+l'interruttore spento, `--once` non scrive nemmeno il battito: l'indicatore online/offline
+deve restare vero al significato che ha in dashboard — "un bottone premuto verrà preso in
+carico a breve" — e con l'avvio automatico fermo quello non è più vero finché qualcuno non
+rilancia `jb work` a mano.
+
 ### Il digest email è un effetto di fine run, non un secondo scheduler (Fase 8.3/8.4)
 
 `GET /api/matches` porta un commento, scritto in Fase 4, che prevedeva il digest come uno
@@ -663,6 +692,29 @@ Sei pesi liberi su trenta esempi trovano sempre *qualcosa*, anche nel rumore. Pe
 lo script non si limita a stampare il vincitore: divide gli esempi in due metà, cerca su
 ciascuna e verifica che il vincitore dell'una regga sull'altra. Se le due metà non sono
 d'accordo, il messaggio lo dice e i pesi vanno lasciati stare.
+
+### 7.5 «Rivaluta tutto»: `--rescore` esposto in dashboard, non solo da terminale
+
+`filters.candidates()` esclude di default chi ha già `reached_stage >= 2` (vedi 7.3): un
+cambio di filtri, criteri o `MasterProfile` non tocca gli annunci già valutati finché
+qualcuno non rilancia `jb match --rescore` — che ripassa dalla rubrica **tutto** l'attivo,
+non solo l'arretrato. Prima di questa fase quel "qualcuno" doveva aprire un terminale sul
+PC del worker; il bottone "Aggiorna adesso" della dashboard accodava sempre un
+`run_pipeline` senza quell'opzione.
+
+"Rivaluta tutto" è lo stesso bottone con un payload in più: `handlers.run_pipeline` legge
+`ctx.payload["rescore"]` e lo inoltra a `run_matching()`, invece di un secondo tipo di
+task o un secondo gestore — `run_pipeline` resta uno, la deduplica di `enqueueTask` (per
+tipo *e* payload) distingue da sola una richiesta normale da una con rescore, e le due non
+si scavalcano: il worker le lavora in coda, mai insieme. Il bottone chiede conferma con un
+`window.confirm` prima di accodare, perché il costo è reale e non ovvio dal solo testo:
+una chiamata LLM per ogni annuncio già valutato, non solo per i nuovi.
+
+**Il digest non duplica in nessuno dei due casi.** `MatchReport.new_job_ids` — annunci
+senza una riga `match` prima del salvataggio corrente — è già la distinzione che serve
+(vedi Fase 8.3 in ROADMAP.md): un annuncio rivalutato da `--rescore` non è "nuovo" anche
+se il suo punteggio è cambiato, quindi non genera una seconda notifica per lo stesso
+annuncio.
 
 ## 8. Deduplicazione
 

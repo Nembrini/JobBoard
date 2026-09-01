@@ -47,8 +47,12 @@ if errorlevel 1 goto :errore
 echo.
 echo Fatto. Da qui in poi non serve piu' avviare nulla a mano: ne' la raccolta,
 echo ne' il backup, ne' il refresh della dashboard, che mostra dati freschi ogni
-echo volta che la apri. "jobboard doctor" controlla anche queste tre attivita',
-echo se un giorno una di loro risultasse di nuovo disabilitata.
+echo volta che la apri. "Aggiorna adesso" e "Rivaluta tutto" funzionano allo
+echo stesso modo: il click accoda, "JobBoard - worker" lo prende entro un
+echo minuto ed esegue da solo. Si puo' fermare senza toccare Task Scheduler
+echo dalla pagina Impostazioni della dashboard ("Avvio automatico"), e
+echo "jobboard doctor" controlla queste tre attivita' a ogni avvio, se un
+echo giorno una di loro risultasse di nuovo disabilitata.
 goto :fine
 
 :errore

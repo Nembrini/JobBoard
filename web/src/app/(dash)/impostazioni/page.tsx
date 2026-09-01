@@ -1,6 +1,8 @@
+import { AutoWorkerForm } from "@/components/settings/auto-worker-form";
 import { NotificationsForm } from "@/components/settings/notifications-form";
 import { TrackingForm } from "@/components/settings/tracking-form";
 import { SiteHeader } from "@/components/site-header";
+import { getAutoWorkerSettings } from "@/lib/auto-worker-settings";
 import { requireSession } from "@/lib/dal";
 import { getNotificationSettings } from "@/lib/notifications";
 import { getTrackingSettings } from "@/lib/tracking-settings";
@@ -8,7 +10,7 @@ import { getTrackingSettings } from "@/lib/tracking-settings";
 export const metadata = { title: "Impostazioni" };
 
 /**
- * La pagina Impostazioni (Fase 8.4): oggi una sola sezione, il digest email.
+ * La pagina Impostazioni: avvio automatico, digest email, tracciamento.
  *
  * Separata dalla pagina CV perché risponde a una domanda diversa — non "cosa
  * sa il sistema di te" ma "cosa deve fare da solo, e quando disturbarti" — e
@@ -17,7 +19,8 @@ export const metadata = { title: "Impostazioni" };
  */
 export default async function ImpostazioniPage() {
   await requireSession();
-  const [notifiche, tracciamento] = await Promise.all([
+  const [avvioAutomatico, notifiche, tracciamento] = await Promise.all([
+    getAutoWorkerSettings(),
     getNotificationSettings(),
     getTrackingSettings(),
   ]);
@@ -34,6 +37,7 @@ export default async function ImpostazioniPage() {
           </p>
         </div>
 
+        <AutoWorkerForm iniziale={avvioAutomatico} />
         <NotificationsForm iniziale={notifiche} />
         <TrackingForm iniziale={tracciamento} />
       </main>

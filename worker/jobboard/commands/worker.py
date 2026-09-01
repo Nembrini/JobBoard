@@ -12,6 +12,7 @@ from ..config import get_settings
 from ..db import session_scope
 from ..models.enums import TaskType
 from ..queue import enqueue_task, heartbeat, run_once, serve
+from ..queue_settings import load_auto_worker_settings
 
 console = Console()
 work_app = typer.Typer(name="work", help="Consumer della coda: esegue i task accodati dalla UI.")
@@ -46,9 +47,25 @@ def work(
     )
 
     if once:
-        # Il battito si scrive anche qui. `--once` e' la forma che userebbe Task
-        # Scheduler, e un worker che ha appena svuotato la coda ma risulta "mai
-        # visto" in dashboard e' un'informazione sbagliata, non mancante.
+        # `--once` e' la forma che userebbe Task Scheduler (`.\setup-scheduler`
+        # crea "JobBoard - worker", un tick ogni minuto): prima di reclamare
+        # qualunque cosa, legge l'interruttore che la pagina Impostazioni
+        # scrive. Acceso e' il default — vedi `queue_settings` — quindi non
+        # cambia nulla per chi non ha mai aperto quella pagina. Spento a mano,
+        # un tick non tocca la coda e non scrive il battito: "worker offline"
+        # deve restare vero finche' un bottone premuto in dashboard non verra'
+        # preso in carico da solo, e con l'interruttore spento e' esattamente
+        # cosi'. Non riguarda `serve()`: un `jb work` lanciato a mano resta
+        # un'azione esplicita, non il tick automatico.
+        with session_scope() as session:
+            automatico = load_auto_worker_settings(session).enabled
+        if not automatico:
+            console.print("[dim]avvio automatico spento nelle Impostazioni[/]")
+            return
+
+        # Il battito si scrive anche qui. Un worker che ha appena svuotato la
+        # coda ma risulta "mai visto" in dashboard e' un'informazione
+        # sbagliata, non mancante.
         with session_scope() as session:
             heartbeat(session)
         trovato = run_once()

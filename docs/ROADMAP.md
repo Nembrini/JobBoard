@@ -582,6 +582,56 @@ quella città dopo la prossima `jb match --commit`.
 
 ---
 
+## Fase 12 — Rivalutazione a richiesta e avvio automatico del worker
+
+Lavori chiesti dopo la Fase 11, non pianificati in origine.
+
+- [x] **12.1** Bottone **"Rivaluta tutto"** accanto ad "Aggiorna adesso": accoda lo stesso
+      `run_pipeline` con `{rescore: true}` nel payload, che `handlers.run_pipeline`
+      inoltra a `run_matching()`. Fa rivalutare dalla rubrica LLM anche gli annunci già
+      arrivati allo Stadio 2 — non solo i nuovi — così un annuncio che con i criteri
+      aggiornati (filtri, profilo) non passerebbe più i filtri duri sparisce dalla
+      dashboard (`reached_stage` torna a 0) invece di restare fermo al punteggio di
+      allora. Chiede conferma prima di partire: il costo è una chiamata LLM per ogni
+      annuncio già valutato, molto più della raccolta incrementale di sempre. Il digest
+      non duplica le notifiche: `MatchReport.new_job_ids` distingue già un annuncio
+      davvero nuovo da uno rivalutato. Vedi ARCHITECTURE.md §7.5.
+- [x] **12.2** **Avvio automatico del worker** per entrambi i bottoni: "JobBoard -
+      worker", l'attività di Task Scheduler già creata da `.\setup-scheduler`
+      (`jb work --once` ogni minuto, Fase 8.1/8.2), resta l'unico meccanismo — nessun
+      processo nuovo. Prima di reclamare un task, `--once` legge un interruttore nuovo in
+      `settings` (`jobboard.queue_settings`, chiave `"auto_worker"`, **acceso di
+      default**) modificabile dalla nuova sezione "Avvio automatico" in `/impostazioni`.
+      Spento, il tick non scrive nemmeno il battito, così l'indicatore online/offline
+      resta coerente col suo significato — "un bottone premuto verrà preso in carico a
+      breve" — e con l'automazione ferma non lo è più. `jb work` lanciato a mano
+      (`serve()`) non è toccato: resta un'azione esplicita, non soggetta
+      all'interruttore. Vedi ARCHITECTURE.md, sezione "L'avvio automatico è un
+      interruttore in `settings`".
+
+**Verifica fatta:** suite worker **475 test raccolti** (471 passati, 4 falliti solo per
+l'assenza del binario Chromium in questo sandbox — pre-esistente, indipendente da questa
+fase; 3 nuovi su `jobboard.queue_settings`, stesso stile `_FakeSession` di
+`test_tracking_settings.py` — nessuno su `run_matching(rescore=True)` o
+`handlers.run_pipeline`, che restano provati solo con provider e sessione finti, mai con
+un database vero), `mypy --strict` pulito su tutto `jobboard` (87 file), `ruff check`
+pulito. `ruff format --check` pulito sui file toccati da questa fase — segnala un file
+preesistente e indipendente ancora da riformattare (`jobboard/apply/guardrails.py`), non
+toccato qui. Lato web: `eslint` e `tsc --noEmit` puliti su tutti i file toccati, inclusi i
+due form nuovi in `/impostazioni`.
+
+**Resta aperto:** nessuna prova contro un Postgres, un worker o un Task Scheduler veri —
+questo ambiente non ha né database né Windows. Non è mai stato osservato un annuncio
+davvero sparire da `/annunci` dopo un "Rivaluta tutto" innescato dal bottone, né un tick
+di "JobBoard - worker" rifiutarsi davvero di reclamare un task con l'interruttore spento.
+Prima verifica end-to-end suggerita: cambiare un filtro che esclude un annuncio già
+valutato (per esempio `home_city`), premere "Rivaluta tutto" e osservarlo sparire dalla
+tabella; poi spegnere "Avvio automatico" in Impostazioni, premere "Aggiorna adesso" e
+verificare che il task resti `pending` finché non si rilancia `jb work` a mano o non si
+riaccende l'interruttore.
+
+---
+
 ## Verifica end-to-end
 
 Al termine della Fase 8, il test completo si fa **dal telefono, con il PC acceso in
