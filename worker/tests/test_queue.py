@@ -8,11 +8,13 @@ si notano finche' non costano una run notturna o una barra ferma a meta'.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 import pytest
 
 from jobboard.models import Source
+from jobboard.models.base import utcnow
 from jobboard.models.enums import RunStatus, TaskType
 from jobboard.pipeline.criteria import MatchCriteria
 from jobboard.pipeline.ingest import IngestReport, SourceOutcome, collect
@@ -52,6 +54,42 @@ def test_i_gestori_registrati_coprono_i_tipi_che_la_dashboard_sa_accodare() -> N
 
     assert TaskType.RUN_PIPELINE in HANDLERS
     assert TaskType.REPARSE_PROFILE in HANDLERS
+
+
+# --- task orfani ---------------------------------------------------------------
+#
+# Solo la decisione pura: _task_orfani() interroga il database e non ha un
+# fixture qui (vedi la nota in cima al file). Quello che si puo' e si deve
+# provare senza database e' la soglia stessa: che non scatti su un task appena
+# preso, e che scatti su uno rimasto 'running' troppo a lungo.
+
+
+def test_un_task_appena_preso_non_e_orfano() -> None:
+    from jobboard.queue import _task_e_orfano
+
+    adesso = utcnow()
+    assert not _task_e_orfano(adesso, adesso=adesso)
+
+
+def test_un_task_running_da_oltre_un_ora_e_orfano() -> None:
+    """E' esattamente il task 14 del 1 settembre 2026: claimed_at vecchio,
+    nessun processo vivo dietro, nessun errore scritto da nessuno."""
+    from jobboard.queue import _task_e_orfano
+
+    adesso = utcnow()
+    preso = adesso - dt.timedelta(minutes=61)
+    assert _task_e_orfano(preso, adesso=adesso)
+
+
+def test_una_rivalutazione_completa_non_supera_la_soglia_per_errore() -> None:
+    """La soglia deve restare sopra i tempi di un run_pipeline con rescore, che
+    puo' superare abbondantemente i cinque minuti tipici della sola rubrica:
+    non deve interrompere un lavoro legittimo ancora in corso."""
+    from jobboard.queue import _task_e_orfano
+
+    adesso = utcnow()
+    preso = adesso - dt.timedelta(minutes=30)
+    assert not _task_e_orfano(preso, adesso=adesso)
 
 
 # --- avanzamento --------------------------------------------------------------

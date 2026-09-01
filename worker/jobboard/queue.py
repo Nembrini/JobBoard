@@ -4,7 +4,7 @@ La dashboard su Vercel non puo' chiamare il PC di casa — non ha un indirizzo, 
 meta' del tempo e' spento. Inserisce quindi una riga in ``task`` e questo
 processo la raccoglie.
 
-**Tre proprieta' che non sono dettagli.**
+**Quattro proprieta' che non sono dettagli.**
 
 *Il prelievo e' esclusivo.* ``SELECT ... FOR UPDATE SKIP LOCKED`` fa si' che due
 processi che partono insieme prendano due task diversi invece dello stesso.
@@ -19,6 +19,16 @@ Supabase per tutto quel tempo, e impedire al battito di scriversi.
 *Il fallimento non e' definitivo al primo colpo.* ``attempts`` cresce a ogni
 presa; finche' resta sotto ``max_attempts`` il task torna in coda. Una API che
 risponde 503 una volta non deve costare il ricaricamento manuale di un CV.
+
+*Un worker morto non lascia un task ``running`` per sempre.* ``serve()`` aspetta
+apposta la fine del task in corso prima di fermarsi con Ctrl+C, ma un secondo
+Ctrl+C forzato, una finestra chiusa o un PC spento a meta' generazione bypassano
+quella cautela: il processo sparisce e nessuno marca piu' la riga. Senza
+``_recupera_orfani`` resterebbe ``running`` all'infinito — non e' un'ipotesi, e'
+il task 14 del 1 settembre 2026: un 503 "high demand" di Gemini ritentato in
+silenzio (vedi ``ai.client._log_prima_di_riprovare``) ha lasciato il log fermo
+per una trentina di secondi subito dopo un WARNING innocuo dell'SDK, ed e'
+bastato a far pensare che il processo si fosse bloccato.
 """
 
 from __future__ import annotations
@@ -51,6 +61,17 @@ Handler = Callable[["Contesto"], dict[str, Any]]
 #: worker fermo da due minuti: trenta secondi lasciano margine a un ritardo di
 #: rete senza dichiarare acceso un PC spento.
 HEARTBEAT_SECONDS = 30
+
+#: Sopra questa soglia un task ancora ``running`` non e' credibile: nessun
+#: singolo task di questo worker dura cosi' a lungo (la rubrica LLM del
+#: matching e' "un buon cinque minuti" nel caso piu' pesante secondo
+#: ``run_pipeline``; un CV e' una manciata di tentativi da una ventina di
+#: secondi l'uno). Se ``claimed_at`` e' piu' vecchio di questo, il processo che
+#: l'aveva preso e' morto senza dirlo — Ctrl+C forzato, finestra chiusa, PC
+#: spento a meta' generazione — e senza un controllo esplicito nessuno lo
+#: riprenderebbe piu': la dashboard mostrerebbe una barra di progresso ferma
+#: li' per sempre, con il log che si interrompe senza un errore da leggere.
+TASK_ORFANO_DOPO = dt.timedelta(minutes=60)
 
 
 class TaskError(RuntimeError):
@@ -223,6 +244,56 @@ def heartbeat(session: Session) -> None:
     riga.hostname = platform.node()[:128]
 
 
+# --- recupero di task abbandonati ----------------------------------------------
+
+
+def _task_e_orfano(claimed_at: dt.datetime, *, adesso: dt.datetime) -> bool:
+    """Decisione pura, testabile senza database: vedi ``TASK_ORFANO_DOPO``."""
+    return adesso - claimed_at > TASK_ORFANO_DOPO
+
+
+def _task_orfani() -> list[Task]:
+    """I task ``running`` il cui worker non puo' piu' essere vivo.
+
+    In pratica e' quasi sempre vuota: la coda serve un solo utente, un worker
+    alla volta. Interrogarla a ogni giro (non solo all'avvio di ``serve()``)
+    e' quello che fa funzionare il recupero anche per ``jb work --once``, che
+    Task Scheduler rilancia come processo nuovo ogni minuto e non ha un
+    "avvio" distinto da un giro qualsiasi.
+    """
+    adesso = utcnow()
+    with session_scope() as session:
+        righe = session.scalars(select(Task).where(Task.status == TaskStatus.RUNNING)).all()
+        return [
+            r
+            for r in righe
+            if r.claimed_at is not None and _task_e_orfano(r.claimed_at, adesso=adesso)
+        ]
+
+
+def _recupera_orfani() -> None:
+    """Rimette in coda (o fallisce, secondo ``attempts``) i task abbandonati.
+
+    Passa dalla stessa ``_fallisci`` di un errore qualunque apposta: un task
+    orfano non e' diverso da un task il cui worker e' morto durante la
+    chiamata — merita lo stesso ritentativo fino a ``max_attempts``, non un
+    fallimento immediato.
+    """
+    for orfano in _task_orfani():
+        minuti = int(TASK_ORFANO_DOPO.total_seconds() // 60)
+        riprova = _fallisci(
+            orfano.id,
+            f"il worker si e' interrotto mentre lo eseguiva "
+            f"(task rimasto 'running' per piu' di {minuti} minuti senza finire)",
+        )
+        log.warning(
+            "task %d (%s) abbandonato da un worker interrotto: %s",
+            orfano.id,
+            orfano.task_type,
+            "torna in coda" if riprova else "segnato fallito",
+        )
+
+
 # --- ciclo --------------------------------------------------------------------
 
 
@@ -234,6 +305,8 @@ def run_once(tipi: tuple[TaskType, ...] | None = None) -> bool:
     # che chi importa la coda solo per leggere un battito non si tiri dietro
     # fastembed e il client LLM.
     from . import handlers  # noqa: F401
+
+    _recupera_orfani()
 
     with session_scope() as session:
         contesto = claim(session, tipi)

@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -24,6 +25,16 @@ from tenacity import (
 from ..config import Settings, get_settings
 
 log = logging.getLogger(__name__)
+
+# google-genai stampa due righe a OGNI chiamata a generate_content, comprese
+# quelle andate a buon fine: un INFO e poi un WARNING sulla "automatic function
+# calling" (AFC), che qui non e' mai in gioco — nessun metodo di questo modulo
+# passa mai ``tools`` alla richiesta. Non sono filtrabili da
+# ``GenerateContentConfig``, solo dalla soglia del logger che le emette. Gia'
+# scambiate una volta per l'errore vero mentre il problema reale (un worker
+# interrotto a meta' generate_cv, vedi ``queue._recupera_orfani``) non lasciava
+# altro segno nel log: la riga scompariva col processo.
+logging.getLogger("google_genai.models").setLevel(logging.ERROR)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -108,6 +119,27 @@ class LLMProvider(ABC):
         """
 
 
+def _log_prima_di_riprovare(stato: RetryCallState) -> None:
+    """Si stampa nell'attesa fra un tentativo e il successivo.
+
+    Senza, un 503 "high demand" di Gemini e' silenzio totale per fino a ~30
+    secondi filati (cinque tentativi, backoff fino a 16s ciascuno): il log si
+    ferma subito dopo "tentativo N" e non riparte finche' la richiesta non
+    torna. E' esattamente quello che ha prodotto il task 14 del 1 settembre
+    2026 — un 503 ritentato in silenzio, con la generazione del CV rimasta
+    interrotta a meta' perche' quel silenzio e' stato letto come un blocco (vedi
+    ``jobboard.queue._recupera_orfani``, che ora recupera un worker morto cosi',
+    ma non sostituisce il non dover sembrare morto in primo luogo).
+    """
+    eccezione = stato.outcome.exception() if stato.outcome else None
+    log.info(
+        "tentativo %d fallito (%s), riprovo tra %.0fs",
+        stato.attempt_number,
+        eccezione,
+        stato.upcoming_sleep,
+    )
+
+
 #: Ritenta solo gli errori transitori, con attesa crescente. Cinque tentativi
 #: distribuiti su ~30 secondi: sufficiente per un picco di carico, non tanto da
 #: bloccare la pipeline se il servizio e' davvero giu'.
@@ -116,6 +148,7 @@ _retry = retry(
     wait=wait_exponential(multiplier=1, min=1, max=16),
     stop=stop_after_attempt(5),
     reraise=True,
+    before_sleep=_log_prima_di_riprovare,
 )
 
 

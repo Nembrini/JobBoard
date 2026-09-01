@@ -143,6 +143,39 @@ Da qui `TaskError(..., definitivo=True)`, che spegne il ritentativo per gli erro
 codice sa già essere definitivi. Tutto il resto — comprese le eccezioni non previste —
 resta ritentabile, che è il comportamento giusto quando non si sa.
 
+### Un task `running` sopravvive al worker che lo teneva
+
+`serve()` intercetta il primo Ctrl+C e aspetta la fine del task in corso apposta per non
+lasciare una riga a metà; un secondo Ctrl+C forzato, la finestra chiusa a mano o il PC
+spento durante una generazione bypassano quella cautela senza passare da nessun gestore
+d'eccezione. Il task resta `running` per sempre: nessun processo lo riprenderà, e in
+dashboard è indistinguibile da un lavoro ancora in corso — una barra ferma al 20%, non un
+errore da leggere.
+
+È il task 14 dell'1 settembre 2026: Gemini ha risposto **503 "high demand"** al primo
+tentativo di `generate_cv`, `tenacity` lo ha ritentato in silenzio (nessun log fra un
+tentativo e l'altro, per progettazione — vedi sopra), il tentativo ripetuto ha impiegato
+un'altra quarantina di secondi a rispondere, e in quella finestra di silenzio totale,
+subito dopo un WARNING innocuo dell'SDK Gemini sulla "automatic function calling" (rumore
+che l'SDK stampa a ogni chiamata, comprese quelle riuscite), il processo è stato
+interrotto da fuori. Risultato: un task orfano senza una riga di errore da nessuna parte,
+e senza il WARNING a fare da falso indiziato nessuno l'avrebbe cercato lì.
+
+Due correzioni, non una:
+
+1. **`ai/client.py` logga anche durante l'attesa fra un tentativo e l'altro**
+   (`before_sleep` di `tenacity`), cosa che prima non succedeva mai — un errore transitorio
+   produceva fino a ~30 secondi di silenzio totale nel log, indistinguibile da un blocco.
+   Silenziato anche il WARNING dell'SDK sulla AFC: non riguarda mai questo codice, che non
+   passa mai `tools` a `generate_content`.
+2. **`queue._recupera_orfani()`** gira a ogni `run_once()` — quindi sia dentro `serve()`
+   sia a ogni tick di `jb work --once` da Task Scheduler — e rimette in coda (o fallisce,
+   secondo `attempts`, la stessa `_fallisci` di un errore qualsiasi) ogni task `running` da
+   più di **un'ora** (`TASK_ORFANO_DOPO`). La soglia è larga apposta: deve restare sopra il
+   tempo di un `run_pipeline` con `--rescore` su un database accumulato da settimane, non
+   solo sopra "un buon cinque minuti" della rubrica in un giro normale. `jb doctor` lo
+   segnala anche prima che scatti da solo.
+
 ### La deduplica in coda sta nel database, non nel bottone
 
 Il bottone "Aggiorna adesso" si disabilita mentre una raccolta è aperta, ma quella è una
@@ -216,34 +249,71 @@ per cui `jb.cmd`/`web.cmd` restano `.cmd` e non `.ps1`. Non serve su `JobBoard -
 una ripetizione al minuto non ha un "avvio mancato" da recuperare, riparte da sola al
 minuto buono successivo.
 
-### L'avvio automatico è un interruttore in `settings`, non un secondo Task Scheduler
+### Ognuna delle tre attività ha un interruttore in `settings`, non un secondo Task Scheduler
 
-"JobBoard - worker" (`jb work --once` ogni minuto) parte incondizionato appena
-`.\setup-scheduler` l'ha creato, e resta così finché qualcuno non lo cancella da Windows —
-`schtasks` non ha modo di leggere una riga di Postgres prima di decidere se agire, lo stesso
-vincolo di "L'orario è solo la preferenza registrata" qui sopra. Quando i bottoni "Aggiorna
-adesso" e "Rivaluta tutto" della dashboard hanno avuto bisogno di un modo per farsi eseguire
-da soli senza che Filippo aprisse un terminale, il meccanismo esisteva già — è lo stesso tick
-di sempre, non uno nuovo — mancava solo un modo per fermarlo dalla dashboard senza cancellare
-l'attività: `jobboard.queue_settings`, chiave `"auto_worker"`, stesso pattern di
-`notify.settings` e `tracking.settings`, letta da `commands.worker` prima di reclamare un
-task quando invocato con `--once`.
+Le tre attività di Task Scheduler partono incondizionate appena `.\setup-scheduler` le ha
+create, e restano così finché qualcuno non le cancella da Windows — `schtasks` non ha modo di
+leggere una riga di Postgres prima di decidere se agire, lo stesso vincolo di "L'orario è solo
+la preferenza registrata" qui sopra. Quando i bottoni "Aggiorna adesso" e "Rivaluta tutto"
+della dashboard hanno avuto bisogno di un modo per farsi eseguire da soli senza che Filippo
+aprisse un terminale, il meccanismo esisteva già — è lo stesso tick di sempre, non uno nuovo —
+mancava solo un modo per fermarlo dalla dashboard senza cancellare l'attività:
+`jobboard.queue_settings`, tre chiavi (`"auto_worker"`, `"scheduled_trigger"`,
+`"scheduled_backup"`, una per attività), stesso pattern di `notify.settings` e
+`tracking.settings`.
 
-**Acceso di default, l'unica delle tre a esserlo.** Notifiche e tracciamento partono spenti
-perché accendono un'azione nuova che prima non esisteva — una mail, una lettura IMAP — e un
-default acceso sarebbe stata una sorpresa. Qui è l'opposto: chi ha già eseguito
-`.\setup-scheduler` conta da tempo su quel tick per la raccolta di ogni mattina, e questo file
-non introduce niente che prima non ci fosse — nasce solo per poterlo fermare. Un default
-spento avrebbe interrotto in silenzio, al primo deploy, un'automazione già in uso.
+**Tre interruttori indipendenti, non uno solo per "l'automazione".** Spegnere il worker ferma
+anche i bottoni della dashboard (nessuno lo reclama più); spegnere la raccolta giornaliera o il
+backup notturno lascia gli altri due intatti. Un solo interruttore avrebbe risparmiato una
+sezione nella pagina Impostazioni al prezzo di non poter tenere acceso "Aggiorna adesso" e
+spegnere solo la raccolta automatica delle 07:00 — una combinazione ragionevole (raccolta solo
+su richiesta, candidature comunque reattive) che un interruttore unico non potrebbe esprimere.
 
-**Il controllo sta in `commands.worker`, non in `queue.claim`.** `claim()` resta quello che
-serve sia a `--once` sia a `serve()` — la lettura della coda con `FOR UPDATE SKIP LOCKED`,
-niente di più — perché un `jb work` lanciato a mano in un terminale è un'azione esplicita di
-Filippo e non deve fermarsi per un interruttore pensato per il tick automatico. Con
-l'interruttore spento, `--once` non scrive nemmeno il battito: l'indicatore online/offline
-deve restare vero al significato che ha in dashboard — "un bottone premuto verrà preso in
-carico a breve" — e con l'avvio automatico fermo quello non è più vero finché qualcuno non
-rilancia `jb work` a mano.
+**Accesi di default, tutti e tre — a differenza di notifiche e tracciamento.** Questi ultimi
+partono spenti perché accendono un'azione nuova che prima non esisteva — una mail, una lettura
+IMAP — e un default acceso sarebbe stata una sorpresa. Qui è l'opposto: chi ha già eseguito
+`.\setup-scheduler` conta da tempo su quei tick, e questo file non introduce niente che prima
+non ci fosse — nasce solo per poterli fermare. Un default spento avrebbe interrotto in
+silenzio, al primo deploy, un'automazione già in uso.
+
+**Il controllo sta nei comandi, non in `queue.claim` o dentro `run_backup`.** `claim()` resta
+quello che serve sia a `--once` sia a `serve()` — la lettura della coda con
+`FOR UPDATE SKIP LOCKED`, niente di più. Per `jb work trigger` e `jb backup run`, che al
+contrario di `--once`/`serve()` non hanno due funzioni diverse per l'invocazione automatica e
+quella manuale, l'interruttore si legge solo dietro un flag nuovo, `--scheduled` — quello che
+`setup-scheduler.cmd` passa nell'azione delle due attività giornaliere. Lanciati a mano, senza
+il flag, restano un'azione esplicita di Filippo: un `jb backup run` prima di una migration
+rischiosa, o un `jb work trigger` per forzare una raccolta subito, non devono fermarsi per un
+interruttore pensato solo per il tick automatico. Con l'interruttore del worker spento, `--once`
+non scrive nemmeno il battito: l'indicatore online/offline deve restare vero al significato che
+ha in dashboard — "un bottone premuto verrà preso in carico a breve" — e con l'avvio automatico
+fermo quello non è più vero finché qualcuno non rilancia `jb work` a mano.
+
+### Le tre attività non aprono più una finestra sullo schermo
+
+`schtasks /create` con le attività "solo se l'utente ha eseguito l'accesso" (necessario per
+Playwright *headful* di "jb apply": una sessione non interattiva, Session 0, non ha un desktop
+su cui mostrare davvero un browser) lancia il processo sulla sessione interattiva, e un
+eseguibile a console — `jobboard.exe` lo è — apre lì la sua finestra, ogni volta, a meno che chi
+lo lancia non gliene impedisca la creazione. "Nascosta" nelle proprietà di Task Scheduler **non
+è quello che serve**: nasconde la voce dell'attività dall'elenco (serve "Mostra attività
+nascoste" per rivederla), non la finestra del processo — due impostazioni diverse con un nome
+che suggerisce la stessa cosa, ed è facile scoprirlo solo dopo averlo provato.
+
+`run-hidden.vbs` alla radice è il wrapper: `WshShell.Run(comando, 0, True)`, dove `0` è lo stile
+finestra "nascosta" passato al processo lanciato e `True` fa aspettare che finisca prima che lo
+script termini — senza, Task Scheduler segnerebbe l'attività "completata" mentre `jobboard.exe`
+lavora ancora. VBScript invece di `powershell -WindowStyle Hidden`: `wscript.exe` non ha una
+console propria da dover nascondere, mentre l'host PowerShell a volte lampeggia comunque la sua
+prima che lo stile nascosto abbia effetto — un dettaglio riportato spesso da chi risolve lo
+stesso problema, non solo teorico. Gli argomenti passano separati (percorso dell'eseguibile, poi
+i suoi parametri) e non come un'unica riga già composta, per non dover raddoppiare le virgolette
+a ogni livello di quel che la invoca (`cmd.exe` → `schtasks /tr` → il wrapper). **Verificato**
+forzando l'esecuzione delle tre attività vere con `schtasks /run` e osservando il battito
+aggiornarsi senza che nessun processo restasse visibile o appeso: il primo tentativo, con un
+trattino lungo (—) in un commento del `.cmd`, aveva mandato in errore `schtasks` con un
+messaggio che non c'entrava nulla (`"M" non riconosciuto...`) — i commenti dei file `.cmd`
+restano testo ASCII per lo stesso motivo per cui il resto del file scrive `e'` invece di `è`.
 
 ### Il digest email è un effetto di fine run, non un secondo scheduler (Fase 8.3/8.4)
 

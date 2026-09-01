@@ -155,6 +155,7 @@ def doctor(
     if check_db:
         _check_database()
         _check_auto_worker()
+        _check_task_orfani()
 
     _check_embedding()
     _check_playwright()
@@ -229,6 +230,34 @@ def _check_auto_worker() -> None:
         console.print(
             "[red]Avvio automatico spento[/] nella pagina Impostazioni — 'JobBoard - worker' "
             "gira ogni minuto ma non reclama nulla. Riaccendilo in Impostazioni > Avvio automatico."
+        )
+
+
+def _check_task_orfani() -> None:
+    """Segnala un task rimasto ``running`` piu' a lungo del credibile.
+
+    ``jb work`` lo recupera gia' da solo al giro successivo (vedi
+    ``queue._recupera_orfani``): questo controllo serve solo a farlo vedere
+    subito a chi guarda ``jb doctor``, invece di lasciarlo scoprire da una
+    barra di progresso ferma in dashboard.
+    """
+    from .queue import TASK_ORFANO_DOPO, _task_orfani
+
+    try:
+        orfani = _task_orfani()
+    except Exception as exc:  # pragma: no cover - dipende dall'ambiente
+        console.print(f"[yellow]Impossibile controllare la coda[/] — {type(exc).__name__}: {exc}")
+        return
+
+    if not orfani:
+        console.print("[green]Nessun task abbandonato in coda[/]")
+        return
+
+    minuti = int(TASK_ORFANO_DOPO.total_seconds() // 60)
+    for riga in orfani:
+        console.print(
+            f"[yellow]Task #{riga.id} ({riga.task_type}) e' 'running' da piu' di "
+            f"{minuti} minuti[/] — 'jb work' lo rimette in coda da solo al prossimo giro"
         )
 
 

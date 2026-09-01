@@ -136,7 +136,8 @@ browser che devi guardare mentre compila un form — che non può girare su un s
 | 9 · Tracking | 🔸 | Stati, lettura IMAP, classificazione risposte, promemoria, metriche — non ancora provato con un account Gmail e un LLM veri |
 | 10 · Rifinitura | 🔸 | Dashboard costi (`/costi`), backup CSV automatico — manca solo la ricalibrazione dei pesi, che serve due settimane d'uso reale |
 | 11 · Città e informazioni applicante | 🔸 | Filtro sulla città allo Stadio 0, pool libero di informazioni applicante (`jb info`, sezione CV) che la Fase 6 può citare in aggiunta al profilo — non ancora provato contro un Postgres e un LLM veri |
-| 12 · Rivalutazione e avvio automatico | 🔸 | Bottone "Rivaluta tutto" (`--rescore` dalla dashboard), avvio/arresto automatico del worker per entrambi i bottoni con interruttore in Impostazioni — non ancora provato contro un Postgres, un worker o un Task Scheduler veri |
+| 12 · Rivalutazione e avvio automatico | ✅ | Bottone "Rivaluta tutto" (`--rescore` dalla dashboard), avvio/arresto automatico del worker per entrambi i bottoni con interruttore in Impostazioni — verificato su Postgres, worker e Task Scheduler veri (tre cause reali di stallo trovate e corrette: interruttore spento, attività disabilitata, e un task `running` orfano dopo un worker interrotto — recupero automatico e log durante i ritentativi in `jb work`/`jb doctor`) |
+| 13 · Attività pianificate senza finestra e interruttori dedicati | ✅ | Le tre attività di Task Scheduler non aprono più una console; ciascuna ha un interruttore proprio in Impostazioni (non solo il worker) e `jobboard doctor` segnala tutte e tre se disabilitate o spente |
 
 Dettaglio completo con sottofasi e criteri di verifica in **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 
@@ -242,7 +243,10 @@ redirect OAuth di Google Cloud Console va aggiornato con il dominio Vercel vero
 
 Crea tre attività di Task Scheduler: il consumer della coda (ogni minuto), il
 trigger della raccolta giornaliera (07:00) e il backup CSV del database (03:00,
-Fase 10.3). Sicuro da rilanciare — sovrascrive, non duplica.
+Fase 10.3). Nessuna apre una finestra sullo schermo. Sicuro da rilanciare —
+sovrascrive, non duplica. Ognuna delle tre si accende e si spegne anche dalla
+pagina Impostazioni della dashboard, senza toccare Task Scheduler — e
+`jobboard doctor` segnala se una risultasse disabilitata o spenta da lì.
 
 </details>
 

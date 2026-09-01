@@ -647,6 +647,30 @@ un'attività disabilitata "non produce un errore da nessuna parte" — lo produc
 `jobboard doctor`. Resta da osservare per davvero solo la sparizione di un annuncio da
 `/annunci` dopo "Rivaluta tutto" con un cambio di filtro.
 
+**Aggiornamento — 1 settembre 2026, una terza causa distinta:** lo stesso "un bottone
+premuto non viene preso in carico" ha una terza causa, indipendente dalle prime due.
+`generate_cv` (task 14) è rimasto `running` al 20% per oltre venti minuti senza alcun
+errore in `task.error`: Gemini ha risposto **503 "high demand"** al primo tentativo,
+`tenacity` lo ha ritentato in silenzio come da progetto (nessun log fra un tentativo e
+l'altro), il tentativo ripetuto ha impiegato ~40s a rispondere, e in quella finestra di
+silenzio totale — subito dopo il WARNING innocuo dell'SDK Gemini sulla "automatic function
+calling", che compare a ogni chiamata, riuscita o no — il processo che teneva il task è
+stato interrotto da fuori (Ctrl+C forzato o finestra chiusa: `serve()` previene solo il
+*primo* Ctrl+C, non il secondo). Nessun gestore d'eccezione ha visto l'interruzione, quindi
+nessuno ha scritto `status = failed`: la riga è rimasta `running` per sempre, senza un
+errore da leggere in nessun log né in `task.error`.
+
+Due correzioni, entrambe verificate sul task 14 vero prima di rimetterlo in coda a mano e
+rieseguirlo con successo (stesso 503 iniziale, stesso ritentativo, questa volta col log a
+mostrarlo — CV generato, PDF caricato, task concluso): `ai/client.py` ora logga anche
+nell'attesa fra un tentativo e l'altro invece di restare muto, e silenzia il WARNING
+dell'SDK che non è mai stato l'errore vero; `queue._recupera_orfani()` gira a ogni
+`run_once()` — sia dentro `serve()` sia a ogni tick di `jb work --once` — e recupera un
+task `running` da più di un'ora (`TASK_ORFANO_DOPO`) con la stessa `_fallisci` di un
+qualunque altro errore. `jb doctor` lo segnala anche prima che scatti da solo. Vedi
+ARCHITECTURE.md, sezione "Un task `running` sopravvive al worker che lo teneva". Suite
+worker: **493 test**, `mypy --strict` e `ruff check`/`format` puliti su tutto `jobboard`.
+
 ---
 
 ## Verifica end-to-end
